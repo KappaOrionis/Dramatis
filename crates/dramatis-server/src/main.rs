@@ -17,6 +17,7 @@ use tracing::info;
 use dramatis_core::persona::{HealthMonitor, PersonaState};
 use dramatis_core::theater::{TheaterManifest, TheaterWorkspace};
 use dramatis_machina::{ArsMagicaStressResult, DiceEngine, DiceRollResult, MonteCarloSimulator, MonteCarloSummary, ShadowrunPoolResult};
+use dramatis_stage::{ChannelType, SceneTopology, StageChannelRouter, TacticalTag, TacticalZone, ZoneId};
 
 #[derive(RustEmbed)]
 #[folder = "../../web-ui/dist/"]
@@ -93,6 +94,70 @@ async fn simulate_standard_handler(
         iters,
     );
     Json(summary)
+}
+
+#[derive(Deserialize)]
+pub struct FilterMessageRequest {
+    pub channel: ChannelType,
+    pub recipient_id: String,
+    pub is_gm: bool,
+}
+
+#[derive(Serialize)]
+pub struct FilterMessageResponse {
+    pub allowed: bool,
+}
+
+async fn get_default_scene_topology_handler() -> Json<SceneTopology> {
+    let mut topo = SceneTopology::default();
+    topo.add_zone(TacticalZone {
+        id: ZoneId("zone_hall".to_string()),
+        title: "Grand Hall de l'Alliance".to_string(),
+        description: "Vaste salle bordée de tapisseries et de colonnes de marbre.".to_string(),
+        connected_zones: vec![ZoneId("zone_lab".to_string()), ZoneId("zone_library".to_string())],
+        tags: vec![TacticalTag {
+            name: "Aura Hermétique 5".to_string(),
+            modifier_type: "aura".to_string(),
+            value: 5,
+        }],
+    });
+
+    topo.add_zone(TacticalZone {
+        id: ZoneId("zone_lab".to_string()),
+        title: "Laboratoire Hermétique".to_string(),
+        description: "Laboratoire encombré d'alambics et de fourneaux.".to_string(),
+        connected_zones: vec![ZoneId("zone_hall".to_string())],
+        tags: vec![TacticalTag {
+            name: "Qualité +3".to_string(),
+            modifier_type: "lab_quality".to_string(),
+            value: 3,
+        }],
+    });
+
+    topo.add_zone(TacticalZone {
+        id: ZoneId("zone_library".to_string()),
+        title: "Bibliothèque Hermétique".to_string(),
+        description: "Rayonnages contenant les précieux Summae et Tractatus.".to_string(),
+        connected_zones: vec![ZoneId("zone_hall".to_string())],
+        tags: vec![TacticalTag {
+            name: "Silence Sacré".to_string(),
+            modifier_type: "noise_filter".to_string(),
+            value: 2,
+        }],
+    });
+
+    Json(topo)
+}
+
+async fn filter_stage_message_handler(
+    Json(payload): Json<FilterMessageRequest>,
+) -> Json<FilterMessageResponse> {
+    let allowed = StageChannelRouter::is_recipient_allowed(
+        &payload.channel,
+        &payload.recipient_id,
+        payload.is_gm,
+    );
+    Json(FilterMessageResponse { allowed })
 }
 
 #[derive(Deserialize)]
@@ -212,6 +277,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/machina/roll/ars-magica", post(roll_ars_magica_handler))
         .route("/api/machina/simulate/standard", post(simulate_standard_handler))
         .route("/api/theaters/{id}/personae", post(create_persona_handler).get(list_personae_handler))
+        .route("/api/stage/scene/default", get(get_default_scene_topology_handler))
+        .route("/api/stage/channels/filter", post(filter_stage_message_handler))
         .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

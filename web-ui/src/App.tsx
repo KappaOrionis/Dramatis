@@ -527,11 +527,85 @@ export default function App() {
         {activeTab === 'stage' && (
           <div>
             <h2 style={{ fontSize: '1.6rem', color: 'var(--purple)', marginBottom: '8px' }}>
-              🎲 StageTable — Table Virtuelle & Canaux Étanches
+              🎲 StageTable — Table Virtuelle, Topologie Tactique & StageChannels
             </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-              Multiplexage des canaux (Zone, Whisper MJ, Parley, Commlink, OOC) sous Brouillard de Guerre 3D.
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: '24px' }}>
+              Régie de session Tokio, découpage en zones connectées et multiplexage étanche des 5 types de canaux (Zone, Whisper, Parley, Commlink, OOC).
             </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              {/* Carte Topologie Tactique */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px' }}>
+                <h3 style={{ fontSize: '1.15rem', color: 'var(--purple)', marginBottom: '16px' }}>
+                  🗺️ Topologie de Scène (Zones Connectées)
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--purple)', borderRadius: '6px', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ color: '#FFF' }}>Grand Hall de l'Alliance</strong>
+                      <span style={{ fontSize: '0.75rem', background: 'rgba(212, 175, 55, 0.2)', color: 'var(--gold)', padding: '2px 6px', borderRadius: '4px' }}>
+                        Zone Active (PJ présents)
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Tags environnementaux : <span style={{ color: 'var(--teal)' }}>Aura Hermétique 5</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Zones adjacentes : Laboratoire Hermétique, Bibliothèque
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ color: '#FFF' }}>Laboratoire Hermétique</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Adjacente</span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Tags environnementaux : <span style={{ color: 'var(--teal)' }}>Qualité +3</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ color: '#FFF' }}>Bibliothèque Hermétique</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Adjacente</span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Tags environnementaux : <span style={{ color: 'var(--teal)' }}>Silence Sacré (Bruit -2)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Panneau des Canaux StageChannels */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px' }}>
+                <h3 style={{ fontSize: '1.15rem', color: 'var(--purple)', marginBottom: '16px' }}>
+                  💬 StageChannels — Espaces Privés & Apartés
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--surface-elevated)', borderRadius: '4px', borderLeft: '3px solid var(--gold)' }}>
+                    <span>#zone-hall (Scène Publique)</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--green)' }}>● PUBLIC ZONE</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--surface-elevated)', borderRadius: '4px', borderLeft: '3px solid var(--purple)' }}>
+                    <span>#whisper-gm-lucius (Aparté MJ/Légiste)</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--purple)' }}>🔒 SECRET MJ</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--surface-elevated)', borderRadius: '4px', borderLeft: '3px solid var(--teal)' }}>
+                    <span>#parley-lucius-kenshi (Tête-à-tête RP)</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--teal)' }}>👥 PRIVÉ (2)</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--surface-elevated)', borderRadius: '4px', borderLeft: '3px solid #6B7280' }}>
+                    <span>#ooc-lounge (Hors-RP)</span>
+                    <span style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>NON-INDEXÉ LLM</span>
+                  </div>
+                </div>
+
+                <div style={{ padding: '12px', background: 'rgba(168, 85, 247, 0.1)', border: '1px solid var(--purple)', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  🛡️ <strong>Brouillard de Guerre 3D Actif</strong> : Les flux matriciels et astraux sont isolés selon le plan de réalité actif du personnage connecté.
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </main>
