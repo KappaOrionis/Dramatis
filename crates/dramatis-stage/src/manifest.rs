@@ -183,3 +183,4 @@ mod tests {
         assert_eq!(loaded_deltas[0].target_entity, "porte_auberge");
     }
 }
+

@@ -100,3 +100,4 @@ mod tests {
         assert!(verdict.captured_content.is_none());
     }
 }
+
