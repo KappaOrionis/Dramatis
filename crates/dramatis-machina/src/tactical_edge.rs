@@ -137,3 +137,4 @@ mod tests {
         assert_eq!(res.edge_awarded_to, Some("defender".to_string()));
     }
 }
+

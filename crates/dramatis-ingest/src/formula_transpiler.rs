@@ -68,3 +68,4 @@ mod tests {
         assert!(rhai.contains("if rating > 5 { 2 } else { 1 }"));
     }
 }
+

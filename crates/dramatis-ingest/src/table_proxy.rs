@@ -123,3 +123,4 @@ mod tests {
         assert!(proxy.description_markdown.contains("ares_predator_vi"));
     }
 }
+

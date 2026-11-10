@@ -1,19 +1,25 @@
 pub mod acl;
+pub mod alliance;
 pub mod chronos;
 pub mod database;
 pub mod epistemic;
+pub mod ledger;
 pub mod mcp;
 pub mod persona;
+pub mod psyche;
 pub mod snapshot;
 pub mod theater;
 pub mod watcher;
 
 pub use acl::{CanonLevel, Role, Visibility};
+pub use alliance::{AllianceError, AllianceState, DowntimeActivity, DowntimeEngine, DowntimeResolutionResult, Laboratory, LibraryBook, VisStock};
 pub use chronos::ChronosConfig;
 pub use database::TheaterDatabaseInitializer;
 pub use epistemic::EpistemicFilter;
+pub use ledger::{LedgerError, PartyItem, PartyLedger};
 pub use mcp::{McpRegistry, McpToolSpec};
 pub use persona::{AbilityScore, HealthMonitor, PersonaState};
+pub use psyche::{NegotiationLimits, PsycheError, PsycheProfile, VoiceConfig};
 pub use snapshot::{SnapshotError, TheaterSnapshotManager};
 pub use theater::{TheaterError, TheaterManifest, TheaterWorkspace};
 pub use watcher::{TheaterObsidianWatcher, WatcherError};

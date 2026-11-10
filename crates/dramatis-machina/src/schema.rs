@@ -138,3 +138,4 @@ mod tests {
         assert_eq!(loaded.monitors[0].penalty_interval, Some(3));
     }
 }
+

@@ -190,3 +190,4 @@ mod tests {
         assert_eq!(report.impacted_characters, vec!["mage_flambeau", "mage_mercurian"]);
     }
 }
+
