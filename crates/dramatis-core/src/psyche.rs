@@ -101,3 +101,4 @@ mod tests {
         assert_eq!(loaded.relationship_gauges.get("actor_tremere_elder"), Some(&15));
     }
 }
+

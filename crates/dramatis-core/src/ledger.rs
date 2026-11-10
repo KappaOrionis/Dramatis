@@ -99,3 +99,4 @@ mod tests {
         assert_eq!(reloaded.inventory[0].quantity, 2);
     }
 }
+
