@@ -4,6 +4,15 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-readme.workspace = true
 
 [dependencies]
+dramatis-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tantivy = "0.22"
