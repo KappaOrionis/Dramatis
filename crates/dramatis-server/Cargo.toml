@@ -8,9 +8,13 @@ license.workspace = true
 [dependencies]
 dramatis-core = { workspace = true }
 dramatis-gateway = { workspace = true }
+dramatis-ingest = { workspace = true }
 dramatis-machina = { workspace = true }
 dramatis-rag = { workspace = true }
 dramatis-stage = { workspace = true }
+rhai = { version = "1.19", features = ["sync", "serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde_yaml = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,10 +15,39 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-use dramatis_core::persona::{HealthMonitor, PersonaState};
-use dramatis_core::theater::{TheaterManifest, TheaterWorkspace};
-use dramatis_machina::{ArsMagicaStressResult, DiceEngine, DiceRollResult, MonteCarloSimulator, MonteCarloSummary, ShadowrunPoolResult};
-use dramatis_stage::{ChannelType, SceneTopology, StageChannelRouter, TacticalTag, TacticalZone, ZoneId};
+use dramatis_core::{
+    acl::Role,
+    alliance::{AllianceState, DowntimeActivity, DowntimeEngine, DowntimeResolutionResult},
+    artificer::{ArtificerEngine, HermeticCraftInput, HermeticCraftVerdict},
+    creation::{ArsMagicaCreationInput, CharacterCreationEngine, CreationValidationResult, ShadowrunPriorityInput},
+    epistemic::EpistemicFilter,
+    ledger::PartyLedger,
+    mcp::{McpRegistry, McpToolSpec},
+    persona::{HealthMonitor, PersonaState},
+    psyche::{NegotiationLimits, PsycheProfile, VoiceConfig},
+    snapshot::TheaterSnapshotManager,
+    theater::{TheaterManifest, TheaterWorkspace},
+};
+use dramatis_ingest::{
+    MarkdownDocParser, ReconciliationDiffEngine, SectionNode, TableDiffReport,
+};
+use dramatis_machina::{
+    AdvancedDiceParser, AdvancedRollResult, ArsMagicaStressResult, DiceEngine, DiceRollResult,
+    EdgeEvaluationInput, EdgeEvaluationResult, MonteCarloSimulator, MonteCarloSummary,
+    RhaiSandbox, ShadowrunPoolResult, SystemSchema, TacticalEdgeEngine,
+};
+use dramatis_rag::{
+    ArchivistAgent, ArchivistVerdict, AutoWikilinker, CampaignChronicler, Citation,
+    EntityResolutionResult, EntityResolver, HybridSearchEngine, HybridSearchResult,
+    MysteriesBoard, NonDestructiveWikiPatcher, SessionDebrief,
+};
+use dramatis_stage::{
+    ChannelType, DeterministicInterceptionEngine, InterceptionHook,
+    InterceptionVerdict, MechanicalIntention, MechanicalResolution,
+    SceneTopology, SessionEventLogger, SessionLogEntry,
+    StageChannelRouter, StageResolutionGate, TacticalTag, TacticalZone,
+    ZoneId,
+};
 
 #[derive(RustEmbed)]
 #[folder = "../../web-ui/dist/"]
@@ -28,12 +58,24 @@ pub struct AppState {
     pub workspaces_root: PathBuf,
 }
 
+fn normalize_theater_dir(id: &str) -> String {
+    if id.ends_with(".dramatis") {
+        id.to_string()
+    } else {
+        format!("{}.dramatis", id)
+    }
+}
+
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
     pub product: &'static str,
 }
+
+// ============================================================================
+// MODULE 4 : MACHINA & DICE HANDLERS
+// ============================================================================
 
 #[derive(Deserialize)]
 pub struct RollStandardRequest {
@@ -53,6 +95,11 @@ pub struct RollArsMagicaRequest {
 }
 
 #[derive(Deserialize)]
+pub struct RollExpressionRequest {
+    pub expression: String,
+}
+
+#[derive(Deserialize)]
 pub struct SimulateStandardRequest {
     pub count: usize,
     pub sides: u32,
@@ -61,40 +108,746 @@ pub struct SimulateStandardRequest {
     pub iterations: Option<usize>,
 }
 
+#[derive(Deserialize)]
+pub struct SimulateShadowrunRequest {
+    pub pool_size: usize,
+    pub threshold_hits: usize,
+    pub iterations: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct EvaluateRhaiRequest {
+    pub script: String,
+    #[serde(default)]
+    pub variables: HashMap<String, i64>,
+}
+
+#[derive(Serialize)]
+pub struct EvaluateRhaiResponse {
+    pub result: i64,
+    pub script: String,
+}
+
 async fn roll_standard_handler(
     Json(payload): Json<RollStandardRequest>,
 ) -> Json<DiceRollResult> {
-    let res = DiceEngine::roll_standard(payload.count, payload.sides, payload.modifier);
-    Json(res)
+    Json(DiceEngine::roll_standard(payload.count, payload.sides, payload.modifier))
 }
 
 async fn roll_shadowrun_handler(
     Json(payload): Json<RollShadowrunRequest>,
 ) -> Json<ShadowrunPoolResult> {
-    let res = DiceEngine::roll_shadowrun(payload.pool_size);
-    Json(res)
+    Json(DiceEngine::roll_shadowrun(payload.pool_size))
 }
 
 async fn roll_ars_magica_handler(
     Json(payload): Json<RollArsMagicaRequest>,
 ) -> Json<ArsMagicaStressResult> {
-    let res = DiceEngine::roll_ars_magica_stress(payload.botch_dice);
-    Json(res)
+    Json(DiceEngine::roll_ars_magica_stress(payload.botch_dice))
+}
+
+async fn roll_expression_handler(
+    Json(payload): Json<RollExpressionRequest>,
+) -> Result<Json<AdvancedRollResult>, StatusCode> {
+    let res = AdvancedDiceParser::parse_and_roll(&payload.expression)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(res))
 }
 
 async fn simulate_standard_handler(
     Json(payload): Json<SimulateStandardRequest>,
 ) -> Json<MonteCarloSummary> {
     let iters = payload.iterations.unwrap_or(10_000);
-    let summary = MonteCarloSimulator::simulate_standard_vs_threshold(
+    Json(MonteCarloSimulator::simulate_standard_vs_threshold(
         payload.count,
         payload.sides,
         payload.modifier,
         payload.threshold,
         iters,
-    );
-    Json(summary)
+    ))
 }
+
+async fn simulate_shadowrun_handler(
+    Json(payload): Json<SimulateShadowrunRequest>,
+) -> Json<MonteCarloSummary> {
+    let iters = payload.iterations.unwrap_or(10_000);
+    Json(MonteCarloSimulator::simulate_shadowrun_hits(
+        payload.pool_size,
+        payload.threshold_hits,
+        iters,
+    ))
+}
+
+async fn evaluate_tactical_edge_handler(
+    Json(payload): Json<EdgeEvaluationInput>,
+) -> Json<EdgeEvaluationResult> {
+    Json(TacticalEdgeEngine::evaluate_edge(&payload))
+}
+
+async fn evaluate_rhai_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<EvaluateRhaiRequest>,
+) -> Result<Json<EvaluateRhaiResponse>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let tables_db = theater_path.join("02_machina/tables.sqlite");
+    let sandbox = RhaiSandbox::with_sqlite_tables(tables_db);
+    let mut scope = rhai::Scope::new();
+    for (k, v) in payload.variables {
+        scope.push(k, v);
+    }
+    let result: i64 = sandbox
+        .evaluate_formula(&payload.script, scope)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(Json(EvaluateRhaiResponse {
+        result,
+        script: payload.script,
+    }))
+}
+
+async fn get_system_schema_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<SystemSchema>, StatusCode> {
+    let schema_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("02_machina/system_schema.json");
+    if schema_path.exists() {
+        let schema = SystemSchema::load_from_file(&schema_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(Json(schema))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[derive(Serialize)]
+pub struct SqlTableCatalogEntry {
+    pub table_name: String,
+    pub description: String,
+    pub ddl_schema: String,
+    pub proxy_markdown: String,
+    pub row_count: i64,
+}
+
+async fn list_sql_tables_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<SqlTableCatalogEntry>>, StatusCode> {
+    let tables_db = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("02_machina/tables.sqlite");
+    if !tables_db.exists() {
+        return Ok(Json(Vec::new()));
+    }
+    let conn = rusqlite::Connection::open(tables_db).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = conn
+        .prepare("SELECT table_name, COALESCE(description,''), COALESCE(ddl_schema,''), COALESCE(proxy_markdown,''), row_count FROM table_metadata")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(SqlTableCatalogEntry {
+                table_name: r.get(0)?,
+                description: r.get(1)?,
+                ddl_schema: r.get(2)?,
+                proxy_markdown: r.get(3)?,
+                row_count: r.get(4)?,
+            })
+        })
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut out = Vec::new();
+    for r in rows.flatten() {
+        out.push(r);
+    }
+    Ok(Json(out))
+}
+
+// ============================================================================
+// MODULE 1 : THEATER, SNAPSHOTS, CHRONOS & HANDOUT EXPORTS
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct CreateTheaterRequest {
+    pub id: String,
+    pub manifest: Option<TheaterManifest>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateSnapshotRequest {
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+pub struct RollbackSnapshotRequest {
+    pub commit_hash: String,
+}
+
+#[derive(Serialize)]
+pub struct SnapshotEntry {
+    pub commit_hash: String,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+pub struct ExportHandoutRequest {
+    pub title: String,
+    pub markdown_content: String,
+    pub role: Role,
+    pub actor_id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExportHandoutResponse {
+    pub html: String,
+    pub sanitized_markdown: String,
+}
+
+#[derive(Deserialize)]
+pub struct AdvanceChronosRequest {
+    pub mode: String, // "rounds", "seconds", "season"
+    pub amount: Option<u32>,
+}
+
+async fn list_snapshots_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<SnapshotEntry>>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let mgr = TheaterSnapshotManager::new(theater_path);
+    let raw = mgr.list_snapshots(25).unwrap_or_default();
+    let entries = raw
+        .into_iter()
+        .map(|(commit_hash, message)| SnapshotEntry { commit_hash, message })
+        .collect();
+    Ok(Json(entries))
+}
+
+async fn create_snapshot_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<CreateSnapshotRequest>,
+) -> Result<Json<SnapshotEntry>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let mgr = TheaterSnapshotManager::new(theater_path);
+    let commit_hash = mgr
+        .create_snapshot(&payload.message)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(SnapshotEntry {
+        commit_hash,
+        message: payload.message,
+    }))
+}
+
+async fn rollback_snapshot_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<RollbackSnapshotRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let mgr = TheaterSnapshotManager::new(theater_path);
+    mgr.rollback_to(&payload.commit_hash)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
+
+async fn export_handout_handler(
+    Json(payload): Json<ExportHandoutRequest>,
+) -> Json<ExportHandoutResponse> {
+    let sanitized_markdown = EpistemicFilter::sanitize_markdown(
+        &payload.markdown_content,
+        payload.role,
+        payload.actor_id.as_deref(),
+    );
+    let html = EpistemicFilter::render_handout_html(
+        &payload.title,
+        &payload.markdown_content,
+        payload.role,
+        payload.actor_id.as_deref(),
+    );
+    Json(ExportHandoutResponse {
+        html,
+        sanitized_markdown,
+    })
+}
+
+async fn advance_chronos_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<AdvanceChronosRequest>,
+) -> Result<Json<TheaterManifest>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let mut ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    match payload.mode.as_str() {
+        "season" => {
+            ws.manifest.chronos.advance_season();
+        }
+        "seconds" => {
+            ws.manifest
+                .chronos
+                .advance_seconds(payload.amount.unwrap_or(60) as i64);
+        }
+        _ => {
+            ws.manifest
+                .chronos
+                .advance_rounds(payload.amount.unwrap_or(1));
+        }
+    }
+
+    let yaml = serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(theater_path.join("theater.yaml"), yaml)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ws.manifest))
+}
+
+// ============================================================================
+// MODULE 2 & 3 : INGEST, WIKI, HYBRID RAG & ARCHIVIST / CHRONICLER
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct IngestMarkdownRequest {
+    pub doc_id: String,
+    pub title: String,
+    pub category: String,
+    pub markdown_content: String,
+}
+
+#[derive(Serialize)]
+pub struct IngestMarkdownResponse {
+    pub doc_id: String,
+    pub sections_extracted: usize,
+    pub tables_extracted: usize,
+    pub resolution: String,
+    pub wikilinked_preview: String,
+}
+
+#[derive(Deserialize)]
+pub struct PatchWikiSectionRequest {
+    pub relative_path: String,
+    pub section_heading: String,
+    pub new_content: String,
+}
+
+#[derive(Deserialize)]
+pub struct HybridSearchRequest {
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct ArchivistQueryRequest {
+    pub query: String,
+}
+
+#[derive(Serialize)]
+pub struct WikiNoteEntry {
+    pub slug: String,
+    pub category: String,
+    pub relative_path: String,
+    pub content: String,
+}
+
+async fn ingest_markdown_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<IngestMarkdownRequest>,
+) -> Result<Json<IngestMarkdownResponse>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let sections: Vec<SectionNode> = MarkdownDocParser::parse(&payload.markdown_content);
+    let tables_count: usize = sections.iter().map(|s| s.tables.len()).sum();
+
+    let kg_path = theater_path.join("04_index/knowledge_graph.sqlite");
+    let res = EntityResolver::resolve(&kg_path, &payload.title, &[])
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let resolution_label = match &res {
+        EntityResolutionResult::MergeWithExisting { canonical_title, score, .. } => {
+            format!("MergeWithExisting ({}, score {:.2})", canonical_title, score)
+        }
+        EntityResolutionResult::CreateNew { proposed_title } => {
+            format!("CreateNew ({})", proposed_title)
+        }
+        EntityResolutionResult::HumanReviewRequired { candidate_title, score, .. } => {
+            format!("HumanReviewRequired ({}, score {:.2})", candidate_title, score)
+        }
+    };
+
+    // Index in HybridSearchEngine & Knowledge Graph
+    let index_dir = theater_path.join("04_index");
+    let mut engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let rel_path = format!("01_wiki/{}/{}.md", payload.category, payload.doc_id);
+    engine
+        .upsert_graph_entity(
+            &payload.doc_id,
+            &payload.title,
+            &payload.category,
+            &rel_path,
+            &payload.markdown_content.chars().take(240).collect::<String>(),
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    engine
+        .index_document(
+            &payload.doc_id,
+            &payload.title,
+            &payload.markdown_content,
+            &rel_path,
+            Some(1),
+            None,
+        )
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Save Wiki file on disk
+    let full_wiki_path = theater_path.join(&rel_path);
+    if let Some(parent) = full_wiki_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&full_wiki_path, &payload.markdown_content)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut entity_map = HashMap::new();
+    entity_map.insert(payload.title.clone(), vec![payload.doc_id.clone()]);
+    let linker = AutoWikilinker::new(entity_map);
+    let wikilinked_preview = linker.link_text(&payload.markdown_content);
+
+    Ok(Json(IngestMarkdownResponse {
+        doc_id: payload.doc_id,
+        sections_extracted: sections.len(),
+        tables_extracted: tables_count,
+        resolution: resolution_label,
+        wikilinked_preview,
+    }))
+}
+
+async fn list_wiki_notes_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<WikiNoteEntry>>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let wiki_root = theater_path.join("01_wiki");
+    let mut notes = Vec::new();
+
+    if let Ok(cats) = std::fs::read_dir(&wiki_root) {
+        for cat_entry in cats.flatten() {
+            if cat_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let category = cat_entry.file_name().to_string_lossy().to_string();
+                if let Ok(files) = std::fs::read_dir(cat_entry.path()) {
+                    for file in files.flatten() {
+                        let p = file.path();
+                        if p.extension().and_then(|e| e.to_str()) == Some("md") {
+                            let slug = p
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("note")
+                                .to_string();
+                            let content = std::fs::read_to_string(&p).unwrap_or_default();
+                            notes.push(WikiNoteEntry {
+                                slug: slug.clone(),
+                                category: category.clone(),
+                                relative_path: format!("01_wiki/{}/{}.md", category, slug),
+                                content,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(notes))
+}
+
+async fn patch_wiki_section_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<PatchWikiSectionRequest>,
+) -> Result<Json<WikiNoteEntry>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let target_file = theater_path.join(&payload.relative_path);
+    let existing = std::fs::read_to_string(&target_file).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let patched = NonDestructiveWikiPatcher::patch_markdown(
+        &existing,
+        &payload.section_heading,
+        &payload.new_content,
+    );
+
+    std::fs::write(&target_file, &patched).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(WikiNoteEntry {
+        slug: target_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("note")
+            .to_string(),
+        category: "wiki".to_string(),
+        relative_path: payload.relative_path,
+        content: patched,
+    }))
+}
+
+async fn search_hybrid_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<HybridSearchRequest>,
+) -> Result<Json<Vec<HybridSearchResult>>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let index_dir = theater_path.join("04_index");
+    let engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let hits = engine
+        .search_hybrid(&payload.query, None, payload.limit.unwrap_or(5))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(hits))
+}
+
+async fn archivist_query_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<ArchivistQueryRequest>,
+) -> Result<Json<ArchivistVerdict>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let index_dir = theater_path.join("04_index");
+    let engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let hits = engine
+        .search_hybrid(&payload.query, None, 3)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let citations: Vec<Citation> = hits
+        .iter()
+        .map(|h| Citation::new(&h.source_path, h.page, &h.excerpt))
+        .collect();
+
+    let summary_text = hits.first().map(|h| h.excerpt.as_str());
+    let verdict = ArchivistAgent::answer_query(&payload.query, citations, summary_text);
+    Ok(Json(verdict))
+}
+
+async fn get_mysteries_board_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<MysteriesBoard>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let board_path = theater_path.join("05_plays/mysteries_board.json");
+    let board = MysteriesBoard::load_or_create(&board_path, &id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(board))
+}
+
+async fn ingest_debrief_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<SessionDebrief>,
+) -> Result<Json<MysteriesBoard>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let board_path = theater_path.join("05_plays/mysteries_board.json");
+    let mut board = MysteriesBoard::load_or_create(&board_path, &id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    CampaignChronicler::ingest_debrief(&mut board, &payload);
+    board
+        .save(&board_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(board))
+}
+
+#[derive(Deserialize)]
+pub struct ReconcileTablesRequest {
+    pub table_name: String,
+    pub primary_key_col: String,
+    pub old_rows: Vec<HashMap<String, String>>,
+    pub new_rows: Vec<HashMap<String, String>>,
+    #[serde(default)]
+    pub character_dependencies: HashMap<String, Vec<String>>,
+}
+
+async fn reconcile_tables_handler(
+    Json(payload): Json<ReconcileTablesRequest>,
+) -> Json<TableDiffReport> {
+    Json(ReconciliationDiffEngine::compute_table_diff(
+        &payload.table_name,
+        &payload.primary_key_col,
+        &payload.old_rows,
+        &payload.new_rows,
+        &payload.character_dependencies,
+    ))
+}
+
+// ============================================================================
+// MODULE 5 : PERSONA FORGE, PSYCHE, CREATION, ALLIANCES, ARTIFICER & LEDGER
+// ============================================================================
+
+#[derive(Deserialize)]
+pub struct CreatePersonaRequest {
+    pub id: String,
+    pub name: String,
+    pub system: String,
+    pub archetype: Option<String>,
+}
+
+async fn list_personae_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PersonaState>>, StatusCode> {
+    let personae_dir = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("03_personae");
+    let mut list = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(personae_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if file_name.ends_with(".persona.json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(persona) = serde_json::from_str::<PersonaState>(&content) {
+                        list.push(persona);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(list))
+}
+
+async fn create_persona_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<CreatePersonaRequest>,
+) -> Result<Json<PersonaState>, StatusCode> {
+    let personae_dir = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("03_personae");
+    std::fs::create_dir_all(&personae_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut persona = PersonaState::new(&payload.id, &payload.name, &payload.system);
+    persona.archetype = payload.archetype;
+
+    if payload.system.to_lowercase().contains("shadowrun") {
+        persona.health_monitors.push(HealthMonitor {
+            name: "Physique".to_string(),
+            max_boxes: 10,
+            current_damage: 0,
+            penalty: 0,
+        });
+        persona.health_monitors.push(HealthMonitor {
+            name: "Étourdissant".to_string(),
+            max_boxes: 10,
+            current_damage: 0,
+            penalty: 0,
+        });
+    } else {
+        persona.health_monitors.push(HealthMonitor {
+            name: "Blessures".to_string(),
+            max_boxes: 12,
+            current_damage: 0,
+            penalty: 0,
+        });
+    }
+
+    // 1. Save .persona.json
+    let json_content = serde_json::to_string_pretty(&persona).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(personae_dir.join(format!("{}.persona.json", payload.id)), json_content)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 2. Save .persona.md
+    let md_content = persona.to_markdown();
+    std::fs::write(personae_dir.join(format!("{}.persona.md", payload.id)), md_content)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 3. Save .psyche.json (PER-01 Triple Facet Architecture)
+    let psyche = PsycheProfile {
+        actor_id: payload.id.clone(),
+        psychological_matrix: vec!["Déterminé".to_string(), "Prudent".to_string()],
+        voice_config: VoiceConfig {
+            tts_engine: "kokoro".to_string(),
+            voice_id: "fr_m_01".to_string(),
+            pitch: 1.0,
+            speed: 1.0,
+        },
+        primary_goals: vec!["Accomplir la mission du groupe".to_string()],
+        secret_fears: vec!["Trahison".to_string()],
+        negotiation_limits: NegotiationLimits {
+            minimum_acceptable_offer: "Part équitable du butin".to_string(),
+            walk_away_threshold: "Menace directe contre les alliés".to_string(),
+            moral_red_lines: vec!["Ne jamais abandonner un compagnon".to_string()],
+        },
+        relationship_gauges: HashMap::new(),
+    };
+    let _ = psyche.save_to_file(&personae_dir.join(format!("{}.psyche.json", payload.id)));
+
+    Ok(Json(persona))
+}
+
+async fn validate_sr6_creation_handler(
+    Json(payload): Json<ShadowrunPriorityInput>,
+) -> Json<CreationValidationResult> {
+    Json(CharacterCreationEngine::validate_shadowrun_priority(&payload))
+}
+
+async fn validate_ars_creation_handler(
+    Json(payload): Json<ArsMagicaCreationInput>,
+) -> Json<CreationValidationResult> {
+    Json(CharacterCreationEngine::validate_ars_magica(&payload, true))
+}
+
+async fn evaluate_artificer_handler(
+    Json(payload): Json<HermeticCraftInput>,
+) -> Json<HermeticCraftVerdict> {
+    Json(ArtificerEngine::evaluate_hermetic_project(&payload))
+}
+
+async fn get_alliance_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<AllianceState>, StatusCode> {
+    let cov_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("03_personae/alliance.json");
+    if cov_path.exists() {
+        let cov = AllianceState::load_from_file(&cov_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(Json(cov))
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn resolve_downtime_handler(
+    Json(payload): Json<DowntimeActivity>,
+) -> Json<DowntimeResolutionResult> {
+    Json(DowntimeEngine::resolve_season(&payload))
+}
+
+async fn get_party_ledger_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<PartyLedger>, StatusCode> {
+    let ledger_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("03_personae/party_ledger.json");
+    let ledger = PartyLedger::load_or_create(&ledger_path, &id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(ledger))
+}
+
+// ============================================================================
+// MODULE 6 : STAGE MANAGER, CHANNELS, INTERCEPTION, RESOLUTION & EVENT LOGS
+// ============================================================================
 
 #[derive(Deserialize)]
 pub struct FilterMessageRequest {
@@ -106,6 +859,24 @@ pub struct FilterMessageRequest {
 #[derive(Serialize)]
 pub struct FilterMessageResponse {
     pub allowed: bool,
+}
+
+#[derive(Deserialize)]
+pub struct StageResolveIntentionRequest {
+    pub intention: MechanicalIntention,
+    pub target_defense: i64,
+    pub physical_dice_override: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct EvaluateInterceptionRequest {
+    pub hook: InterceptionHook,
+    pub message_content: String,
+}
+
+#[derive(Deserialize)]
+pub struct RewindStageRequest {
+    pub turns_to_rewind: usize,
 }
 
 async fn get_default_scene_topology_handler() -> Json<SceneTopology> {
@@ -160,99 +931,85 @@ async fn filter_stage_message_handler(
     Json(FilterMessageResponse { allowed })
 }
 
-#[derive(Deserialize)]
-pub struct CreatePersonaRequest {
-    pub id: String,
-    pub name: String,
-    pub system: String,
-    pub archetype: Option<String>,
+async fn evaluate_interception_handler(
+    Json(payload): Json<EvaluateInterceptionRequest>,
+) -> Json<InterceptionVerdict> {
+    Json(DeterministicInterceptionEngine::evaluate_interception(
+        &payload.hook,
+        &payload.message_content,
+    ))
 }
 
-async fn list_personae_handler(
+async fn stage_resolve_intention_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-) -> Result<Json<Vec<PersonaState>>, StatusCode> {
-    let dir_name = if id.ends_with(".dramatis") {
-        id
+    Json(payload): Json<StageResolveIntentionRequest>,
+) -> Result<Json<MechanicalResolution>, StatusCode> {
+    let roll_total = if let Some(forced) = payload.physical_dice_override {
+        forced
+    } else if let Ok(parsed) = AdvancedDiceParser::parse_and_roll(&payload.intention.skill_expression) {
+        parsed.total
     } else {
-        format!("{}.dramatis", id)
+        DiceEngine::roll_standard(1, 10, 0).total
     };
 
-    let personae_dir = state.workspaces_root.join(dir_name).join("03_personae");
-    let mut list = Vec::new();
+    let resolution = StageResolutionGate::resolve_intention(
+        payload.intention,
+        roll_total,
+        payload.target_defense,
+    );
 
-    if let Ok(entries) = std::fs::read_dir(personae_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(persona) = serde_json::from_str::<PersonaState>(&content) {
-                        list.push(persona);
-                    }
-                }
-            }
-        }
-    }
+    // Log in session_logs.jsonl (STG-06)
+    let log_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("05_plays/default/session_logs.jsonl");
+    let _ = SessionEventLogger::append_event(
+        &log_path,
+        "mechanical_resolution",
+        &resolution.intention.actor_id,
+        "#zone-main",
+        &resolution.deterministic_verdict,
+        serde_json::to_value(&resolution).unwrap_or_default(),
+    );
 
-    Ok(Json(list))
+    Ok(Json(resolution))
 }
 
-async fn create_persona_handler(
+async fn list_session_logs_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Json(payload): Json<CreatePersonaRequest>,
-) -> Result<Json<PersonaState>, StatusCode> {
-    let dir_name = if id.ends_with(".dramatis") {
-        id
-    } else {
-        format!("{}.dramatis", id)
-    };
-
-    let personae_dir = state.workspaces_root.join(dir_name).join("03_personae");
-    std::fs::create_dir_all(&personae_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut persona = PersonaState::new(&payload.id, &payload.name, &payload.system);
-    persona.archetype = payload.archetype;
-
-    // Initialiser des moniteurs par défaut selon le système
-    if payload.system.contains("shadowrun") {
-        persona.health_monitors.push(HealthMonitor {
-            name: "Physique".to_string(),
-            max_boxes: 10,
-            current_damage: 0,
-            penalty: 0,
-        });
-        persona.health_monitors.push(HealthMonitor {
-            name: "Étourdissant".to_string(),
-            max_boxes: 10,
-            current_damage: 0,
-            penalty: 0,
-        });
-    } else {
-        persona.health_monitors.push(HealthMonitor {
-            name: "Blessures".to_string(),
-            max_boxes: 12,
-            current_damage: 0,
-            penalty: 0,
-        });
-    }
-
-    let json_content = serde_json::to_string_pretty(&persona).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let md_content = persona.to_markdown();
-
-    std::fs::write(personae_dir.join(format!("{}.persona.json", payload.id)), json_content)
+) -> Result<Json<Vec<SessionLogEntry>>, StatusCode> {
+    let log_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("05_plays/default/session_logs.jsonl");
+    let logs = SessionEventLogger::read_all_events(&log_path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    std::fs::write(personae_dir.join(format!("{}.persona.md", payload.id)), md_content)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(persona))
+    Ok(Json(logs))
 }
 
-#[derive(Deserialize)]
-pub struct CreateTheaterRequest {
-    pub id: String,
-    pub manifest: Option<TheaterManifest>,
+async fn rewind_stage_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<RewindStageRequest>,
+) -> Result<Json<Vec<SessionLogEntry>>, StatusCode> {
+    let log_path = state
+        .workspaces_root
+        .join(normalize_theater_dir(&id))
+        .join("05_plays/default/session_logs.jsonl");
+    let remaining = SessionEventLogger::rewind_events(&log_path, payload.turns_to_rewind)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(remaining))
 }
+
+async fn list_mcp_tools_handler() -> Json<Vec<McpToolSpec>> {
+    Json(McpRegistry::list_all_tools())
+}
+
+// ============================================================================
+// SERVER BOOTSTRAP & REFERENCE THEATERS SEEDING
+// ============================================================================
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -270,15 +1027,48 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/health", get(health_handler))
+        .route("/api/mcp/tools", get(list_mcp_tools_handler))
+        // Module 1 : Theaters, Snapshots, Chronos & Exports
         .route("/api/theaters", post(create_theater_handler).get(list_theaters_handler))
         .route("/api/theaters/{id}", get(get_theater_handler))
+        .route("/api/theaters/{id}/snapshots", get(list_snapshots_handler).post(create_snapshot_handler))
+        .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
+        .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
+        .route("/api/export/handout", post(export_handout_handler))
+        // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler
+        .route("/api/theaters/{id}/ingest/markdown", post(ingest_markdown_handler))
+        .route("/api/theaters/{id}/ingest/reconcile", post(reconcile_tables_handler))
+        .route("/api/theaters/{id}/wiki", get(list_wiki_notes_handler).patch(patch_wiki_section_handler))
+        .route("/api/theaters/{id}/rag/search", post(search_hybrid_handler))
+        .route("/api/theaters/{id}/agents/archivist", post(archivist_query_handler))
+        .route("/api/theaters/{id}/mysteries", get(get_mysteries_board_handler))
+        .route("/api/theaters/{id}/chronicler/debrief", post(ingest_debrief_handler))
+        // Module 4 : Machina, Dice, Rhai-SQL & Monte-Carlo
         .route("/api/machina/roll/standard", post(roll_standard_handler))
         .route("/api/machina/roll/shadowrun", post(roll_shadowrun_handler))
         .route("/api/machina/roll/ars-magica", post(roll_ars_magica_handler))
+        .route("/api/machina/roll/expression", post(roll_expression_handler))
         .route("/api/machina/simulate/standard", post(simulate_standard_handler))
+        .route("/api/machina/simulate/shadowrun", post(simulate_shadowrun_handler))
+        .route("/api/machina/tactical-edge", post(evaluate_tactical_edge_handler))
+        .route("/api/theaters/{id}/machina/eval", post(evaluate_rhai_handler))
+        .route("/api/theaters/{id}/machina/schema", get(get_system_schema_handler))
+        .route("/api/theaters/{id}/machina/tables", get(list_sql_tables_handler))
+        // Module 5 : PersonaForge, Creation, Artificer, Alliances & Ledger
         .route("/api/theaters/{id}/personae", post(create_persona_handler).get(list_personae_handler))
+        .route("/api/persona/validate/sr6", post(validate_sr6_creation_handler))
+        .route("/api/persona/validate/ars-magica", post(validate_ars_creation_handler))
+        .route("/api/persona/artificer", post(evaluate_artificer_handler))
+        .route("/api/theaters/{id}/alliance", get(get_alliance_handler))
+        .route("/api/theaters/{id}/downtime/resolve", post(resolve_downtime_handler))
+        .route("/api/theaters/{id}/ledger", get(get_party_ledger_handler))
+        // Module 6 : StageManager, Channels, Interception & Event Logs
         .route("/api/stage/scene/default", get(get_default_scene_topology_handler))
         .route("/api/stage/channels/filter", post(filter_stage_message_handler))
+        .route("/api/stage/interception", post(evaluate_interception_handler))
+        .route("/api/theaters/{id}/stage/resolve", post(stage_resolve_intention_handler))
+        .route("/api/theaters/{id}/stage/logs", get(list_session_logs_handler))
+        .route("/api/theaters/{id}/stage/rewind", post(rewind_stage_handler))
         .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -305,15 +1095,12 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();
             ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response()
         }
-        None => {
-            // Fallback SPA vers index.html
-            match Asset::get("index.html") {
-                Some(content) => {
-                    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], content.data).into_response()
-                }
-                None => (StatusCode::NOT_FOUND, "Not Found").into_response(),
+        None => match Asset::get("index.html") {
+            Some(content) => {
+                ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], content.data).into_response()
             }
-        }
+            None => (StatusCode::NOT_FOUND, "Not Found").into_response(),
+        },
     }
 }
 
@@ -341,6 +1128,7 @@ async fn list_theaters_handler(
             }
         }
     }
+    list.sort();
 
     Ok(Json(list))
 }
@@ -349,12 +1137,7 @@ async fn create_theater_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateTheaterRequest>,
 ) -> Result<Json<TheaterManifest>, StatusCode> {
-    let dir_name = if payload.id.ends_with(".dramatis") {
-        payload.id
-    } else {
-        format!("{}.dramatis", payload.id)
-    };
-
+    let dir_name = normalize_theater_dir(&payload.id);
     let theater_path = state.workspaces_root.join(&dir_name);
     let manifest = payload.manifest.unwrap_or_default();
 
@@ -368,13 +1151,7 @@ async fn get_theater_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<TheaterManifest>, StatusCode> {
-    let dir_name = if id.ends_with(".dramatis") {
-        id
-    } else {
-        format!("{}.dramatis", id)
-    };
-
-    let theater_path = state.workspaces_root.join(dir_name);
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
     let ws = TheaterWorkspace::open(theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
 
     Ok(Json(ws.manifest))

@@ -1,12 +1,6 @@
-name: Nouveau Théâtre
-version: 2.1.0
-system_id: generic
-description: Théâtre de jeu de rôle Dramatis
-privacy_mode: hybrid
-chronos:
-  calendar_type: standard
-  current_timestamp_seconds: 0
-  current_season: null
-  current_year: 1
-  round_duration_seconds: 3
-default_role: player
+theater_id: "shadowrun-6e"
+name: "Shadowrun 6e — Sixième Monde (Seattle 2082)"
+version: "2.1.0"
+system_preset: "Shadowrun6e"
+privacy_mode: "strict_local"
+default_language: "fr"

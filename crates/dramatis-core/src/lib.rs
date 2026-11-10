@@ -1,6 +1,8 @@
 pub mod acl;
 pub mod alliance;
+pub mod artificer;
 pub mod chronos;
+pub mod creation;
 pub mod database;
 pub mod epistemic;
 pub mod ledger;
@@ -13,7 +15,9 @@ pub mod watcher;
 
 pub use acl::{CanonLevel, Role, Visibility};
 pub use alliance::{AllianceError, AllianceState, DowntimeActivity, DowntimeEngine, DowntimeResolutionResult, Laboratory, LibraryBook, VisStock};
-pub use chronos::ChronosConfig;
+pub use artificer::{ArtificerEngine, HermeticCraftInput, HermeticCraftVerdict};
+pub use chronos::{ChronosConfig, TimeHookDefinition};
+pub use creation::{ArsMagicaCreationInput, CharacterCreationEngine, CreationValidationResult, ShadowrunPriorityInput};
 pub use database::TheaterDatabaseInitializer;
 pub use epistemic::EpistemicFilter;
 pub use ledger::{LedgerError, PartyItem, PartyLedger};

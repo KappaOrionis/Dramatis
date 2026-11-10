@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use dramatis_core::TheaterDatabaseInitializer;
 use crate::rrf::{ReciprocalRankFusion, ScoredDocument};
 use crate::tantivy_search::{TantivyError, TantivySearchEngine};
 
@@ -12,6 +13,8 @@ pub enum HybridError {
     Tantivy(#[from] TantivyError),
     #[error("Database error: {0}")]
     Db(#[from] rusqlite::Error),
+    #[error("Schema init error: {0}")]
+    Schema(#[from] dramatis_core::database::SchemaInitError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
@@ -42,6 +45,7 @@ pub struct VectorEmbeddingRecord {
 pub struct HybridSearchEngine {
     tantivy: TantivySearchEngine,
     knowledge_db_path: PathBuf,
+    lexicon_path: PathBuf,
     vector_store_path: PathBuf,
     vectors: Vec<VectorEmbeddingRecord>,
 }
@@ -51,7 +55,17 @@ impl HybridSearchEngine {
         let tantivy_dir = index_dir.join("tantivy");
         let tantivy = TantivySearchEngine::open_or_create(&tantivy_dir)?;
 
-        let knowledge_db_path = theater_root.join("knowledge_graph.sqlite");
+        // Support both 04_index/knowledge_graph.sqlite and root/knowledge_graph.sqlite
+        let idx_kg = index_dir.join("knowledge_graph.sqlite");
+        let root_kg = theater_root.join("knowledge_graph.sqlite");
+        let knowledge_db_path = if root_kg.exists() && !idx_kg.exists() {
+            root_kg
+        } else {
+            TheaterDatabaseInitializer::init_knowledge_graph_db(&idx_kg)?;
+            idx_kg
+        };
+
+        let lexicon_path = theater_root.join("lexicon.yaml");
         let vector_store_path = index_dir.join("vectors").join("embeddings.json");
 
         if let Some(parent) = vector_store_path.parent() {
@@ -68,6 +82,7 @@ impl HybridSearchEngine {
         Ok(Self {
             tantivy,
             knowledge_db_path,
+            lexicon_path,
             vector_store_path,
             vectors,
         })
@@ -103,14 +118,75 @@ impl HybridSearchEngine {
         Ok(())
     }
 
+    pub fn upsert_graph_entity(
+        &self,
+        entity_id: &str,
+        canonical_title: &str,
+        category: &str,
+        relative_path: &str,
+        summary: &str,
+    ) -> Result<(), HybridError> {
+        TheaterDatabaseInitializer::init_knowledge_graph_db(&self.knowledge_db_path)?;
+        let conn = Connection::open(&self.knowledge_db_path)?;
+        conn.execute(
+            r#"
+            INSERT INTO entities (entity_id, canonical_title, category, relative_path, summary, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, strftime('%s','now'))
+            ON CONFLICT(entity_id) DO UPDATE SET
+                canonical_title = excluded.canonical_title,
+                category = excluded.category,
+                relative_path = excluded.relative_path,
+                summary = excluded.summary,
+                updated_at = strftime('%s','now')
+            "#,
+            params![entity_id, canonical_title, category, relative_path, summary],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_graph_relationship(
+        &self,
+        source_entity_id: &str,
+        target_entity_id: &str,
+        relation_type: &str,
+        weight: f64,
+    ) -> Result<(), HybridError> {
+        TheaterDatabaseInitializer::init_knowledge_graph_db(&self.knowledge_db_path)?;
+        let conn = Connection::open(&self.knowledge_db_path)?;
+        conn.execute(
+            r#"
+            INSERT INTO relationships (source_entity_id, target_entity_id, relation_type, weight)
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![source_entity_id, target_entity_id, relation_type, weight],
+        )?;
+        Ok(())
+    }
+
     pub fn search_hybrid(
         &self,
         query: &str,
         query_vector: Option<&[f32]>,
         limit: usize,
     ) -> Result<Vec<HybridSearchResult>, HybridError> {
+        // 0. Bilingual Lexicon Query Expansion (WIK-08)
+        let expanded_query = if self.lexicon_path.exists() {
+            if let Ok(lex) = crate::lexicon::LexiconEngine::from_file(&self.lexicon_path) {
+                let extra = lex.expand_query(query);
+                if extra.is_empty() {
+                    query.to_string()
+                } else {
+                    format!("{} {}", query, extra.join(" "))
+                }
+            } else {
+                query.to_string()
+            }
+        } else {
+            query.to_string()
+        };
+
         // 1. Tantivy Lexical Search
-        let tantivy_hits = self.tantivy.search(query, limit * 2)?;
+        let tantivy_hits = self.tantivy.search(&expanded_query, limit * 2)?;
 
         // 2. Dense Vector Cosine Similarity Search
         let dense_hits: Vec<ScoredDocument> = if let Some(q_vec) = query_vector {
@@ -176,15 +252,16 @@ impl HybridSearchEngine {
 
         let conn = Connection::open(&self.knowledge_db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT entity_id, label, properties FROM kg_nodes WHERE label LIKE ?1 OR canonical_name LIKE ?1 LIMIT ?2",
+            "SELECT entity_id, canonical_title, summary, relative_path FROM entities WHERE canonical_title LIKE ?1 OR summary LIKE ?1 LIMIT ?2",
         )?;
 
         let pattern = format!("%{}%", query);
         let rows = stmt.query_map([&pattern, &limit.to_string()], |row| {
             let id: String = row.get(0)?;
-            let label: String = row.get(1)?;
-            let props: String = row.get(2)?;
-            Ok((id, label, props))
+            let title: String = row.get(1)?;
+            let summary: String = row.get(2)?;
+            let rel_path: String = row.get(3)?;
+            Ok((id, title, summary, rel_path))
         })?;
 
         let mut ranked = Vec::new();
@@ -193,7 +270,7 @@ impl HybridSearchEngine {
                 id: row.0,
                 title: row.1,
                 content: row.2,
-                source_path: "knowledge_graph.sqlite".to_string(),
+                source_path: if row.3.is_empty() { "knowledge_graph.sqlite".to_string() } else { row.3 },
                 page: None,
                 score: 1.0,
             });
@@ -209,7 +286,7 @@ impl HybridSearchEngine {
 
         let conn = Connection::open(&self.knowledge_db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT target_id, relation_type FROM kg_edges WHERE source_id = ?1 LIMIT 10",
+            "SELECT target_entity_id, relation_type FROM relationships WHERE source_entity_id = ?1 LIMIT 10",
         )?;
 
         let rows = stmt.query_map([entity_id], |row| {
@@ -260,34 +337,35 @@ mod tests {
         let index_dir = theater_root.join("04_index");
         std::fs::create_dir_all(&index_dir).unwrap();
 
-        // Create dummy SQLite KG
-        let kg_path = theater_root.join("knowledge_graph.sqlite");
-        let conn = Connection::open(&kg_path).unwrap();
-        conn.execute(
-            "CREATE TABLE kg_nodes (entity_id TEXT PRIMARY KEY, canonical_name TEXT, label TEXT, category TEXT, properties TEXT)",
-            [],
-        ).unwrap();
-        conn.execute(
-            "CREATE TABLE kg_edges (edge_id TEXT PRIMARY KEY, source_id TEXT, target_id TEXT, relation_type TEXT, weight REAL, bidirectional INTEGER)",
-            [],
-        ).unwrap();
-        conn.execute(
-            "INSERT INTO kg_nodes VALUES ('covenant_doissetep', 'Doissetep', 'Doissetep Hermetic Covenant', 'location', '{}')",
-            [],
-        ).unwrap();
-        conn.execute(
-            "INSERT INTO kg_edges VALUES ('e1', 'covenant_doissetep', 'magus_tremere', 'allied_with', 1.0, 0)",
-            [],
-        ).unwrap();
-
         let mut engine = HybridSearchEngine::open_or_create(&index_dir, &theater_root).unwrap();
+
+        engine.upsert_graph_entity(
+            "covenant_doissetep",
+            "Doissetep Hermetic Covenant",
+            "lieux",
+            "/01_wiki/lieux/doissetep.md",
+            "Famous Hermetic Covenant in the Pyrenees",
+        ).unwrap();
+        engine.upsert_graph_entity(
+            "magus_tremere",
+            "Magus Tremere",
+            "pnj",
+            "/01_wiki/pnj/tremere.md",
+            "Archmage of House Tremere",
+        ).unwrap();
+        engine.add_graph_relationship(
+            "covenant_doissetep",
+            "magus_tremere",
+            "allied_with",
+            1.0,
+        ).unwrap();
 
         // Index 2 documents with embeddings
         engine.index_document(
             "covenant_doissetep",
             "Doissetep Covenant",
             "Doissetep is a famous Hermetic Covenant perched high in the Pyrenees.",
-            "/01_wiki/locations/doissetep.md",
+            "/01_wiki/lieux/doissetep.md",
             Some(42),
             Some(vec![1.0, 0.0, 0.0]),
         ).unwrap();
@@ -296,7 +374,7 @@ mod tests {
             "seattle_matrix",
             "Seattle Grid Matrix",
             "The Seattle grid is buzzing with Renraku IC and deckers.",
-            "/01_wiki/lore/seattle.md",
+            "/01_wiki/concepts/seattle.md",
             None,
             Some(vec![0.0, 1.0, 0.0]),
         ).unwrap();

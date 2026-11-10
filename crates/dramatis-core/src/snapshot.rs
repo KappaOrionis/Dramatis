@@ -21,8 +21,31 @@ impl TheaterSnapshotManager {
         }
     }
 
+    pub fn ensure_git_initialized(&self) -> Result<(), SnapshotError> {
+        if !self.root.join(".git").exists() {
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(&self.root)
+                .arg("init")
+                .output();
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(&self.root)
+                .args(["config", "user.email", "dramatis@local.theater"])
+                .output();
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(&self.root)
+                .args(["config", "user.name", "Dramatis Engine"])
+                .output();
+        }
+        Ok(())
+    }
+
     /// Crée un instantané Git local pour le Théâtre
     pub fn create_snapshot(&self, message: &str) -> Result<String, SnapshotError> {
+        self.ensure_git_initialized()?;
+
         let status = Command::new("git")
             .arg("-C")
             .arg(&self.root)
@@ -46,7 +69,6 @@ impl TheaterSnapshotManager {
             return Err(SnapshotError::Git(out_str));
         }
 
-        // Récupérer le commit hash court
         let rev_out = Command::new("git")
             .arg("-C")
             .arg(&self.root)
@@ -59,6 +81,10 @@ impl TheaterSnapshotManager {
 
     /// Liste l'historique des snapshots du Théâtre
     pub fn list_snapshots(&self, limit: usize) -> Result<Vec<(String, String)>, SnapshotError> {
+        if !self.root.join(".git").exists() {
+            return Ok(Vec::new());
+        }
+
         let output = Command::new("git")
             .arg("-C")
             .arg(&self.root)
@@ -99,4 +125,3 @@ impl TheaterSnapshotManager {
         Ok(())
     }
 }
-

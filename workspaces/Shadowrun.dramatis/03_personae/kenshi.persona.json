@@ -1,0 +1,41 @@
+{
+  "id": "kenshi-decker",
+  "name": "Kenshi 'Zero-Day' Sato",
+  "metatype": "Human",
+  "archetype": "Decker / Infiltrateur",
+  "priorities": {
+    "Metatype": "E",
+    "Attributes": "B",
+    "Skills": "A",
+    "MagicResonance": "D",
+    "Resources": "C"
+  },
+  "essence": "3.45",
+  "edge_current": 4,
+  "edge_max": 5,
+  "condition_monitors": {
+    "physical_max": 10,
+    "physical_damage": 2,
+    "stun_max": 11,
+    "stun_damage": 0,
+    "matrix_max": 12,
+    "matrix_damage": 1
+  },
+  "augmentations": [
+    {
+      "name": "Cyberjack Renraku Kitsune R4",
+      "essence_cost": "1.20",
+      "grade": "Alphaware"
+    },
+    {
+      "name": "Réflexes Câblés R2",
+      "essence_cost": "1.35",
+      "grade": "Standard"
+    }
+  ],
+  "gear": [
+    "Shiawase Cyber-6 Deck",
+    "Ares Predator VI (Smartgun)",
+    "SIN Falsifié Rang 4 (Kenji Takahashi)"
+  ]
+}

@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::acl::Role;
 use crate::chronos::ChronosConfig;
 use crate::database::{SchemaInitError, TheaterDatabaseInitializer};
+use crate::snapshot::TheaterSnapshotManager;
 
 #[derive(Error, Debug)]
 pub enum TheaterError {
@@ -87,6 +88,11 @@ impl TheaterWorkspace {
         TheaterDatabaseInitializer::init_knowledge_graph_db(root.join("04_index/knowledge_graph.sqlite"))?;
         TheaterDatabaseInitializer::init_machina_tables_db(root.join("02_machina/tables.sqlite"))?;
 
+        // Initialisation Git atomique si possible (THE-04)
+        let snap_mgr = TheaterSnapshotManager::new(&root);
+        let _ = snap_mgr.ensure_git_initialized();
+        let _ = snap_mgr.create_snapshot("chore: initialize theater workspace");
+
         Ok(Self { root, manifest })
     }
 
@@ -97,10 +103,50 @@ impl TheaterWorkspace {
             return Err(TheaterError::InvalidFormat(manifest_path));
         }
 
+        // Assurer que les bases SQLite existent et ont le schéma unifié à l'ouverture
+        let _ = std::fs::create_dir_all(root.join("04_index"));
+        let _ = std::fs::create_dir_all(root.join("02_machina"));
+        TheaterDatabaseInitializer::init_manifest_db(root.join("04_index/manifest.sqlite"))?;
+        TheaterDatabaseInitializer::init_knowledge_graph_db(root.join("04_index/knowledge_graph.sqlite"))?;
+        TheaterDatabaseInitializer::init_machina_tables_db(root.join("02_machina/tables.sqlite"))?;
+
         let content = std::fs::read_to_string(&manifest_path)?;
         let manifest: TheaterManifest = serde_yaml::from_str(&content)?;
 
         Ok(Self { root, manifest })
     }
+
+    /// Clones an entire Theater workspace into a new destination directory (`THE-01`)
+    pub fn clone_to<P: AsRef<Path>>(&self, target_root: P, new_name: Option<String>) -> Result<Self, TheaterError> {
+        let target = target_root.as_ref().to_path_buf();
+        copy_dir_recursive(&self.root, &target)?;
+
+        let mut cloned_manifest = self.manifest.clone();
+        if let Some(name) = new_name {
+            cloned_manifest.name = name;
+            let yaml = serde_yaml::to_string(&cloned_manifest)?;
+            std::fs::write(target.join("theater.yaml"), yaml)?;
+        }
+
+        Self::open(target)
+    }
 }
 
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let name = entry.file_name();
+        if name == ".git" {
+            continue;
+        }
+        let dst_path = dst.join(name);
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), dst_path)?;
+        }
+    }
+    Ok(())
+}

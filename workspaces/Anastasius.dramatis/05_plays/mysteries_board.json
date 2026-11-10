@@ -1,0 +1,14 @@
+{
+  "mysteries": [
+    {
+      "id": "mys-01",
+      "title": "La Disparition de l'Archonte Vaelen",
+      "status": "Active",
+      "clues_discovered": [
+        "Cylindre phonographique fissuré trouvé dans l'Observatoire",
+        "Traces d'éther calciné sur le quai n°4"
+      ],
+      "hidden_truth": "Vaelen s'est volontairement transféré dans le Cœur Mécanique de la Cité."
+    }
+  ]
+}

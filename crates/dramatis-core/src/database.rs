@@ -13,7 +13,7 @@ pub enum SchemaInitError {
 pub struct TheaterDatabaseInitializer;
 
 impl TheaterDatabaseInitializer {
-    /// Initialise manifest.sqlite (Index et suivi SHA-256)
+    /// Initializes manifest.sqlite (Idempotent SHA-256 tracking & hierarchical chunks)
     pub fn init_manifest_db<P: AsRef<Path>>(db_path: P) -> Result<(), SchemaInitError> {
         let conn = Connection::open(db_path)?;
         conn.execute_batch(
@@ -24,34 +24,36 @@ impl TheaterDatabaseInitializer {
             CREATE TABLE IF NOT EXISTS sources (
                 source_id TEXT PRIMARY KEY,
                 file_path TEXT NOT NULL,
-                file_name TEXT NOT NULL,
+                file_name TEXT NOT NULL DEFAULT '',
                 file_type TEXT NOT NULL,
-                file_size INTEGER NOT NULL,
+                file_size INTEGER NOT NULL DEFAULT 0,
                 sha256_hash TEXT NOT NULL,
-                ingested_at INTEGER NOT NULL,
-                status TEXT NOT NULL -- 'pending', 'indexed', 'error'
+                page_count INTEGER,
+                ingested_at INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'indexed'
             );
 
             CREATE TABLE IF NOT EXISTS chunks (
                 chunk_id TEXT PRIMARY KEY,
                 source_id TEXT NOT NULL,
-                parent_section_id TEXT NOT NULL,
+                parent_section_id TEXT,
+                page_number INTEGER,
                 title TEXT,
                 content TEXT NOT NULL,
                 token_count INTEGER NOT NULL,
                 breadcrumb TEXT,
-                indexed_at INTEGER NOT NULL,
+                indexed_at INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (source_id) REFERENCES sources(source_id) ON DELETE CASCADE
             );
 
             CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id);
             CREATE INDEX IF NOT EXISTS idx_sources_hash ON sources(sha256_hash);
-            "#
+            "#,
         )?;
         Ok(())
     }
 
-    /// Initialise knowledge_graph.sqlite (Graphe relationnel Lore, Wiki et Entités)
+    /// Initializes knowledge_graph.sqlite (Lore, Wiki entities, aliases & relational edges)
     pub fn init_knowledge_graph_db<P: AsRef<Path>>(db_path: P) -> Result<(), SchemaInitError> {
         let conn = Connection::open(db_path)?;
         conn.execute_batch(
@@ -62,12 +64,13 @@ impl TheaterDatabaseInitializer {
             CREATE TABLE IF NOT EXISTS entities (
                 entity_id TEXT PRIMARY KEY,
                 canonical_title TEXT UNIQUE NOT NULL,
-                category TEXT NOT NULL, -- 'histoire', 'lieux', 'pnj', 'bestiaire', 'factions', 'objets', 'concepts'
-                relative_path TEXT NOT NULL,
-                canon_level TEXT NOT NULL, -- 'official', 'homebrew', 'campaign_fact', 'campaign_rumor'
-                visibility TEXT NOT NULL, -- 'public', 'gm_only', 'discovered_by:...'
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                category TEXT NOT NULL DEFAULT 'concepts',
+                relative_path TEXT NOT NULL DEFAULT '',
+                canon_level TEXT NOT NULL DEFAULT 'official',
+                visibility TEXT NOT NULL DEFAULT 'public',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS aliases (
@@ -81,7 +84,7 @@ impl TheaterDatabaseInitializer {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source_entity_id TEXT NOT NULL,
                 target_entity_id TEXT NOT NULL,
-                relation_type TEXT NOT NULL, -- 'allied_with', 'located_in', 'member_of', 'opposes', etc.
+                relation_type TEXT NOT NULL,
                 weight REAL DEFAULT 1.0,
                 FOREIGN KEY (source_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE,
                 FOREIGN KEY (target_entity_id) REFERENCES entities(entity_id) ON DELETE CASCADE
@@ -90,12 +93,12 @@ impl TheaterDatabaseInitializer {
             CREATE INDEX IF NOT EXISTS idx_aliases_alias ON aliases(alias);
             CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source_entity_id);
             CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_entity_id);
-            "#
+            "#,
         )?;
         Ok(())
     }
 
-    /// Initialise tables.sqlite (Catalogues de données mécaniques de jeu)
+    /// Initializes tables.sqlite (Mechanical game catalogs & proxy cards)
     pub fn init_machina_tables_db<P: AsRef<Path>>(db_path: P) -> Result<(), SchemaInitError> {
         let conn = Connection::open(db_path)?;
         conn.execute_batch(
@@ -106,10 +109,12 @@ impl TheaterDatabaseInitializer {
                 table_name TEXT PRIMARY KEY,
                 description TEXT,
                 source_file TEXT,
+                ddl_schema TEXT,
+                proxy_markdown TEXT,
                 row_count INTEGER DEFAULT 0,
-                last_updated INTEGER NOT NULL
+                last_updated INTEGER NOT NULL DEFAULT 0
             );
-            "#
+            "#,
         )?;
         Ok(())
     }
@@ -135,4 +140,3 @@ mod tests {
         assert!(tables_path.exists());
     }
 }
-

@@ -1,2 +1,10 @@
-# Glossaire Bilingue FR <-> EN pour requêtes BM25
-terms: []
+terms:
+  - canonical: "GOD"
+    aliases: ["Grid Overwatch Division", "Demi-Dieux de la Matrice", "Convergence Matricielle"]
+    language: "fr"
+  - canonical: "Essence"
+    aliases: ["Intégrité Biologique", "Indice d'Essence"]
+    language: "fr"
+  - canonical: "Atout"
+    aliases: ["Edge", "Réserve d'Atout"]
+    language: "fr"

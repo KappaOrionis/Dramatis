@@ -1,0 +1,7 @@
+{
+  "actor_id": "kenshi-decker",
+  "temperament": "Cynique, hyper-vigilant, économe de ses mots",
+  "speech_register": "Argot des ombres de Seattle mêlé de jargon matriciel",
+  "agenda": "Effacer définitivement son dossier biométrique des serveurs centraux de Shiawase",
+  "secrets_known": ["renraku_backdoor_sublevel_9"]
+}

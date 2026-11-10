@@ -1,7 +1,11 @@
 use std::path::Path;
 use calamine::{open_workbook_auto, Data, Reader};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::formula_transpiler::FormulaTranspiler;
+use crate::table_proxy::{TableProxyCard, TableProxyGenerator};
 
 #[derive(Error, Debug)]
 pub enum ExcelIngestError {
@@ -9,8 +13,17 @@ pub enum ExcelIngestError {
     Calamine(#[from] calamine::Error),
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("Sheet not found: {0}")]
     SheetNotFound(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExcelIngestionReport {
+    pub created_tables: Vec<String>,
+    pub proxy_cards: Vec<TableProxyCard>,
+    pub transpiled_rhai_formulas: Vec<String>,
 }
 
 pub struct ExcelTableIngester;
@@ -21,9 +34,22 @@ impl ExcelTableIngester {
         sqlite_conn: &mut Connection,
         table_prefix: Option<&str>,
     ) -> Result<Vec<String>, ExcelIngestError> {
-        let mut workbook = open_workbook_auto(excel_path)?;
+        let report = Self::ingest_workbook_full(excel_path, sqlite_conn, table_prefix, None)?;
+        Ok(report.created_tables)
+    }
+
+    pub fn ingest_workbook_full<P: AsRef<Path>>(
+        excel_path: P,
+        sqlite_conn: &mut Connection,
+        table_prefix: Option<&str>,
+        formulas_rhai_out: Option<&Path>,
+    ) -> Result<ExcelIngestionReport, ExcelIngestError> {
+        let source_file_str = excel_path.as_ref().to_string_lossy().to_string();
+        let mut workbook = open_workbook_auto(&excel_path)?;
         let sheet_names = workbook.sheet_names().to_vec();
         let mut created_tables = Vec::new();
+        let mut proxy_cards = Vec::new();
+        let mut transpiled_rhai_formulas = Vec::new();
 
         for sheet_name in sheet_names {
             if let Ok(range) = workbook.worksheet_range(&sheet_name) {
@@ -81,19 +107,43 @@ impl ExcelTableIngester {
                     placeholders
                 );
 
+                let mut json_rows: Vec<Vec<serde_json::Value>> = Vec::new();
+
                 let tx = sqlite_conn.transaction()?;
                 {
                     let mut stmt = tx.prepare(&insert_sql)?;
                     for row in rows_iter {
+                        let mut json_row = Vec::new();
                         let values: Vec<String> = (0..col_names.len())
                             .map(|idx| match row.get(idx) {
-                                Some(Data::Int(i)) => i.to_string(),
-                                Some(Data::Float(f)) => f.to_string(),
-                                Some(Data::String(s)) => s.clone(),
-                                Some(Data::Bool(b)) => b.to_string(),
-                                _ => "".to_string(),
+                                Some(Data::Int(i)) => {
+                                    json_row.push(serde_json::Value::Number((*i).into()));
+                                    i.to_string()
+                                }
+                                Some(Data::Float(f)) => {
+                                    if let Some(n) = serde_json::Number::from_f64(*f) {
+                                        json_row.push(serde_json::Value::Number(n));
+                                    } else {
+                                        json_row.push(serde_json::Value::String(f.to_string()));
+                                    }
+                                    f.to_string()
+                                }
+                                Some(Data::String(s)) => {
+                                    json_row.push(serde_json::Value::String(s.clone()));
+                                    s.clone()
+                                }
+                                Some(Data::Bool(b)) => {
+                                    json_row.push(serde_json::Value::Bool(*b));
+                                    b.to_string()
+                                }
+                                _ => {
+                                    json_row.push(serde_json::Value::String("".to_string()));
+                                    "".to_string()
+                                }
                             })
                             .collect();
+
+                        json_rows.push(json_row);
 
                         let params_refs: Vec<&dyn rusqlite::ToSql> = values
                             .iter()
@@ -103,10 +153,63 @@ impl ExcelTableIngester {
                     }
                 }
                 tx.commit()?;
-                created_tables.push(table_name);
+
+                // Generate TableProxyCard (ING-06)
+                let col_defs: Vec<(&str, &str)> = col_names.iter().map(|c| (c.as_str(), "TEXT")).collect();
+                let proxy = TableProxyGenerator::generate_proxy_card(&table_name, &col_defs, &json_rows);
+
+                let _ = sqlite_conn.execute(
+                    r#"
+                    INSERT INTO table_metadata (table_name, description, source_file, ddl_schema, proxy_markdown, row_count, last_updated)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%s','now'))
+                    ON CONFLICT(table_name) DO UPDATE SET
+                        ddl_schema = excluded.ddl_schema,
+                        proxy_markdown = excluded.proxy_markdown,
+                        row_count = excluded.row_count,
+                        last_updated = strftime('%s','now')
+                    "#,
+                    params![
+                        &table_name,
+                        format!("Imported from sheet '{}'", sheet_name),
+                        &source_file_str,
+                        &proxy.ddl_schema,
+                        &proxy.description_markdown,
+                        proxy.total_rows as i64
+                    ],
+                );
+
+                proxy_cards.push(proxy);
+                created_tables.push(table_name.clone());
+
+                // Extract Excel cell formulas (ING-05)
+                if let Ok(formula_range) = workbook.worksheet_formula(&sheet_name) {
+                    for (r_idx, f_row) in formula_range.rows().enumerate() {
+                        for (c_idx, expr) in f_row.iter().enumerate() {
+                            if !expr.trim().is_empty() {
+                                let fn_name = format!("fn_{}_r{}_c{}", table_name, r_idx + 1, c_idx + 1);
+                                let rhai_fn = FormulaTranspiler::transpile_formula_to_rhai(&fn_name, &["a1", "b1"], expr);
+                                transpiled_rhai_formulas.push(rhai_fn);
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        Ok(created_tables)
+        if let Some(rhai_path) = formulas_rhai_out {
+            if !transpiled_rhai_formulas.is_empty() {
+                if let Some(parent) = rhai_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                let script = transpiled_rhai_formulas.join("\n");
+                std::fs::write(rhai_path, script)?;
+            }
+        }
+
+        Ok(ExcelIngestionReport {
+            created_tables,
+            proxy_cards,
+            transpiled_rhai_formulas,
+        })
     }
 }
