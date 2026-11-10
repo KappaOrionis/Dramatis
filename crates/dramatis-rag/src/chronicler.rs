@@ -164,3 +164,4 @@ mod tests {
         assert_eq!(reloaded.mysteries[0].clues_discovered.len(), 2);
     }
 }
+

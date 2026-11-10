@@ -16,7 +16,7 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-pulldown-cmark = "0.12"
+pulldown-cmark = { version = "0.12", default-features = true }
 calamine = "0.24"
 rusqlite = { version = "0.31", features = ["bundled"] }
 

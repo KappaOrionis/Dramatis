@@ -101,3 +101,4 @@ mod tests {
         assert!(verdict.answer.contains("[/01_wiki/locations/doissetep.md]"));
     }
 }
+
