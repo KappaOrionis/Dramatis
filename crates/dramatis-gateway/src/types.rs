@@ -33,3 +33,33 @@ impl Default for ModelProfile {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRoutingMatrix {
+    pub archivist: ModelProfile,
+    pub scribe: ModelProfile,
+    pub arbiter: ModelProfile,
+    pub steward: ModelProfile,
+    pub playwright: ModelProfile,
+    pub director: ModelProfile,
+    pub actor: ModelProfile,
+    pub vlm: Option<ModelProfile>,
+    pub embeddings: Option<ModelProfile>,
+}
+
+impl Default for AgentRoutingMatrix {
+    fn default() -> Self {
+        let base_local = ModelProfile::default();
+        Self {
+            archivist: base_local.clone(),
+            scribe: base_local.clone(),
+            arbiter: base_local.clone(),
+            steward: base_local.clone(),
+            playwright: base_local.clone(),
+            director: base_local.clone(),
+            actor: base_local.clone(),
+            vlm: None,
+            embeddings: None,
+        }
+    }
+}
+

@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::acl::Role;
 use crate::chronos::ChronosConfig;
+use crate::database::{SchemaInitError, TheaterDatabaseInitializer};
 
 #[derive(Error, Debug)]
 pub enum TheaterError {
@@ -13,6 +14,8 @@ pub enum TheaterError {
     Yaml(#[from] serde_yaml::Error),
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Database initialization error: {0}")]
+    Db(#[from] SchemaInitError),
     #[error("Invalid theater format at {0}")]
     InvalidFormat(PathBuf),
 }
@@ -78,6 +81,11 @@ impl TheaterWorkspace {
 
         let default_lexicon = "# Glossaire Bilingue FR <-> EN pour requêtes BM25\nterms: []\n";
         std::fs::write(root.join("lexicon.yaml"), default_lexicon)?;
+
+        // Initialisation automatique des 3 bases de données SQLite du Théâtre
+        TheaterDatabaseInitializer::init_manifest_db(root.join("04_index/manifest.sqlite"))?;
+        TheaterDatabaseInitializer::init_knowledge_graph_db(root.join("04_index/knowledge_graph.sqlite"))?;
+        TheaterDatabaseInitializer::init_machina_tables_db(root.join("02_machina/tables.sqlite"))?;
 
         Ok(Self { root, manifest })
     }

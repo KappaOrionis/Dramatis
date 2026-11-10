@@ -4,4 +4,4 @@ pub mod types;
 
 pub use budgeter::ContextBudgeter;
 pub use client::{GatewayError, SouffleurClient};
-pub use types::{ChatMessage, ModelProfile};
+pub use types::{AgentRoutingMatrix, ChatMessage, ModelProfile};
