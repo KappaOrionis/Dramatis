@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dramatis-core",
+    "crates/dramatis-gateway",
+    "crates/dramatis-rag",
+    "crates/dramatis-ingest",
+    "crates/dramatis-machina",
+    "crates/dramatis-stage",
+    "crates/dramatis-server",
+]
+
+[workspace.package]
+version = "2.1.0"
+edition = "2021"
+authors = ["Dramatis Team"]
+license = "MIT OR Apache-2.0"
+readme = "PRD.md"
+
+[workspace.dependencies]
+# Internal workspace crates
+dramatis-core = { path = "crates/dramatis-core" }
+dramatis-gateway = { path = "crates/dramatis-gateway" }
+dramatis-rag = { path = "crates/dramatis-rag" }
+dramatis-ingest = { path = "crates/dramatis-ingest" }
+dramatis-machina = { path = "crates/dramatis-machina" }
+dramatis-stage = { path = "crates/dramatis-stage" }
+
+# Async runtime & networking
+tokio = { version = "1.43", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+axum = { version = "0.8", features = ["ws", "macros", "multipart"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization & format handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Observability & Errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Filesystem & Utils
+notify = "8.0"
+uuid = { version = "1.13", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust-embed = { version = "8.5", features = ["interpolate-folder-path"] }
+sha2 = "0.10"
+hex = "0.4"
+

@@ -1,0 +1,9 @@
+[package]
+name = "dramatis-stage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[dependencies]
