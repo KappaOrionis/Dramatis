@@ -15,6 +15,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use dramatis_core::theater::{TheaterManifest, TheaterWorkspace};
+use dramatis_machina::{ArsMagicaStressResult, DiceEngine, DiceRollResult, MonteCarloSimulator, MonteCarloSummary, ShadowrunPoolResult};
 
 #[derive(RustEmbed)]
 #[folder = "../../web-ui/dist/"]
@@ -30,6 +31,67 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
     pub product: &'static str,
+}
+
+#[derive(Deserialize)]
+pub struct RollStandardRequest {
+    pub count: usize,
+    pub sides: u32,
+    pub modifier: i64,
+}
+
+#[derive(Deserialize)]
+pub struct RollShadowrunRequest {
+    pub pool_size: usize,
+}
+
+#[derive(Deserialize)]
+pub struct RollArsMagicaRequest {
+    pub botch_dice: usize,
+}
+
+#[derive(Deserialize)]
+pub struct SimulateStandardRequest {
+    pub count: usize,
+    pub sides: u32,
+    pub modifier: i64,
+    pub threshold: i64,
+    pub iterations: Option<usize>,
+}
+
+async fn roll_standard_handler(
+    Json(payload): Json<RollStandardRequest>,
+) -> Json<DiceRollResult> {
+    let res = DiceEngine::roll_standard(payload.count, payload.sides, payload.modifier);
+    Json(res)
+}
+
+async fn roll_shadowrun_handler(
+    Json(payload): Json<RollShadowrunRequest>,
+) -> Json<ShadowrunPoolResult> {
+    let res = DiceEngine::roll_shadowrun(payload.pool_size);
+    Json(res)
+}
+
+async fn roll_ars_magica_handler(
+    Json(payload): Json<RollArsMagicaRequest>,
+) -> Json<ArsMagicaStressResult> {
+    let res = DiceEngine::roll_ars_magica_stress(payload.botch_dice);
+    Json(res)
+}
+
+async fn simulate_standard_handler(
+    Json(payload): Json<SimulateStandardRequest>,
+) -> Json<MonteCarloSummary> {
+    let iters = payload.iterations.unwrap_or(10_000);
+    let summary = MonteCarloSimulator::simulate_standard_vs_threshold(
+        payload.count,
+        payload.sides,
+        payload.modifier,
+        payload.threshold,
+        iters,
+    );
+    Json(summary)
 }
 
 #[derive(Deserialize)]
@@ -56,6 +118,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_handler))
         .route("/api/theaters", post(create_theater_handler).get(list_theaters_handler))
         .route("/api/theaters/{id}", get(get_theater_handler))
+        .route("/api/machina/roll/standard", post(roll_standard_handler))
+        .route("/api/machina/roll/shadowrun", post(roll_shadowrun_handler))
+        .route("/api/machina/roll/ars-magica", post(roll_ars_magica_handler))
+        .route("/api/machina/simulate/standard", post(simulate_standard_handler))
         .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

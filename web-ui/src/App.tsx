@@ -59,16 +59,61 @@ export default function App() {
     }
   };
 
-  const rollStandardDice = () => {
-    const rolls = [];
-    let sum = 0;
-    for (let i = 0; i < diceCount; i++) {
-      const r = Math.floor(Math.random() * diceSides) + 1;
-      rolls.push(r);
-      sum += r;
+  const rollStandardDice = async () => {
+    try {
+      const res = await fetch('/api/machina/roll/standard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: diceCount, sides: diceSides, modifier: diceMod })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRollResult(`${data.details}`);
+      }
+    } catch (e) {
+      console.error(e);
     }
-    const total = sum + diceMod;
-    setRollResult(`${diceCount}d${diceSides}${diceMod >= 0 ? '+' : ''}${diceMod} = [${rolls.join(', ')}] = ${total}`);
+  };
+
+  const rollShadowrunPool = async () => {
+    try {
+      const res = await fetch('/api/machina/roll/shadowrun', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pool_size: diceCount })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const glitchText = data.is_critical_glitch 
+          ? ' ⚠️ CRITICAL GLITCH !' 
+          : data.is_glitch 
+          ? ' ⚠️ GLITCH !' 
+          : '';
+        setRollResult(`Pool ${data.pool_size}d6 -> [${data.rolls.join(', ')}] = ${data.hits} Succès (Hits)${glitchText}`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const rollArsMagicaStress = async () => {
+    try {
+      const res = await fetch('/api/machina/roll/ars-magica', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botch_dice: 2 })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.is_botch_check) {
+          setRollResult(`Tirage Initial: 0 -> Vérification de Botch (2 dés): ${data.botch_zeros} zéro(s) = ${data.is_botch ? '💥 BOTCH !' : 'Échec Simple (0)'}`);
+        } else {
+          setRollResult(`Tirage Initial: ${data.initial_roll} (x${data.multiplier}) -> Score Final du Dé: ${data.final_die_value}`);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
@@ -322,7 +367,7 @@ export default function App() {
                     style={{ width: '80px', padding: '8px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', borderRadius: '4px' }}
                   />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
                   <button 
                     onClick={rollStandardDice}
                     style={{
@@ -330,11 +375,37 @@ export default function App() {
                       color: '#000',
                       border: 'none',
                       borderRadius: '4px',
-                      padding: '8px 16px',
+                      padding: '8px 14px',
                       fontWeight: 700
                     }}
                   >
-                    Lancer
+                    Dés Standard
+                  </button>
+                  <button 
+                    onClick={rollShadowrunPool}
+                    style={{
+                      background: 'var(--teal)',
+                      color: '#000',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '8px 14px',
+                      fontWeight: 700
+                    }}
+                  >
+                    Shadowrun D6
+                  </button>
+                  <button 
+                    onClick={rollArsMagicaStress}
+                    style={{
+                      background: 'var(--purple)',
+                      color: '#FFF',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '8px 14px',
+                      fontWeight: 700
+                    }}
+                  >
+                    Ars Magica Stress
                   </button>
                 </div>
               </div>

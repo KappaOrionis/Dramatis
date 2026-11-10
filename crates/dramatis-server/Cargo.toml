@@ -8,6 +8,9 @@ license.workspace = true
 [dependencies]
 dramatis-core = { workspace = true }
 dramatis-gateway = { workspace = true }
+dramatis-machina = { workspace = true }
+dramatis-rag = { workspace = true }
+dramatis-stage = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
