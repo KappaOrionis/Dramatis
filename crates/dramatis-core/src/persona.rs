@@ -106,3 +106,4 @@ mod tests {
         assert!(md.contains("4 / 12"));
     }
 }
+
