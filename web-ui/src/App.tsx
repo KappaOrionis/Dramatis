@@ -429,11 +429,98 @@ export default function App() {
         {activeTab === 'persona' && (
           <div>
             <h2 style={{ fontSize: '1.6rem', color: 'var(--teal)', marginBottom: '8px' }}>
-              🛡️ PersonaForge — Personnages & Alliances
+              🛡️ PersonaForge — Forge d'Entités, Moniteurs & Alliances
             </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
-              Triple facette synchronisée : JSON déterministe, vue Markdown pour Obsidian, et profil psychologique.
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: '24px' }}>
+              Synchronisation déterministe JSON ↔ Vue Markdown formatée pour Obsidian et moniteurs de santé multiples.
             </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+              {/* Carte Exemple Ars Magica */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h3 style={{ fontSize: '1.2rem', color: 'var(--teal)' }}>Lucius Hermeticus</h3>
+                  <span style={{ fontSize: '0.75rem', background: 'rgba(0, 240, 255, 0.15)', color: 'var(--teal)', padding: '2px 8px', borderRadius: '4px' }}>
+                    Ars Magica 5e
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                  Archétype : <strong style={{ color: '#FFF' }}>Mage Bonisagus</strong>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>MONITEUR : BLESSURES</div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((box) => (
+                      <div 
+                        key={box}
+                        style={{
+                          flex: 1,
+                          height: '24px',
+                          background: box <= 3 ? 'var(--red)' : 'var(--surface-elevated)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.65rem',
+                          fontWeight: 700
+                        }}
+                      >
+                        {box <= 3 ? 'X' : ''}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--red)', marginTop: '4px' }}>Malus de blessure actif : -1</div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Fichiers synchronisés : <code>lucius.persona.json</code> & <code>lucius.persona.md</code>
+                </div>
+              </div>
+
+              {/* Carte Exemple Shadowrun */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h3 style={{ fontSize: '1.2rem', color: 'var(--teal)' }}>Kenshi "Ghost"</h3>
+                  <span style={{ fontSize: '0.75rem', background: 'rgba(0, 240, 255, 0.15)', color: 'var(--teal)', padding: '2px 8px', borderRadius: '4px' }}>
+                    Shadowrun 6e
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                  Archétype : <strong style={{ color: '#FFF' }}>Street Samurai (Essence: 0.85)</strong>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>MONITEUR PHYSIQUE</div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((box) => (
+                      <div 
+                        key={box}
+                        style={{
+                          flex: 1,
+                          height: '24px',
+                          background: box <= 2 ? 'var(--amber)' : 'var(--surface-elevated)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.65rem',
+                          fontWeight: 700
+                        }}
+                      >
+                        {box <= 2 ? 'X' : ''}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Fichiers synchronisés : <code>kenshi.persona.json</code> & <code>kenshi.persona.md</code>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

@@ -14,6 +14,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use dramatis_core::persona::{HealthMonitor, PersonaState};
 use dramatis_core::theater::{TheaterManifest, TheaterWorkspace};
 use dramatis_machina::{ArsMagicaStressResult, DiceEngine, DiceRollResult, MonteCarloSimulator, MonteCarloSummary, ShadowrunPoolResult};
 
@@ -95,6 +96,94 @@ async fn simulate_standard_handler(
 }
 
 #[derive(Deserialize)]
+pub struct CreatePersonaRequest {
+    pub id: String,
+    pub name: String,
+    pub system: String,
+    pub archetype: Option<String>,
+}
+
+async fn list_personae_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<PersonaState>>, StatusCode> {
+    let dir_name = if id.ends_with(".dramatis") {
+        id
+    } else {
+        format!("{}.dramatis", id)
+    };
+
+    let personae_dir = state.workspaces_root.join(dir_name).join("03_personae");
+    let mut list = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(personae_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(persona) = serde_json::from_str::<PersonaState>(&content) {
+                        list.push(persona);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Json(list))
+}
+
+async fn create_persona_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<CreatePersonaRequest>,
+) -> Result<Json<PersonaState>, StatusCode> {
+    let dir_name = if id.ends_with(".dramatis") {
+        id
+    } else {
+        format!("{}.dramatis", id)
+    };
+
+    let personae_dir = state.workspaces_root.join(dir_name).join("03_personae");
+    std::fs::create_dir_all(&personae_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut persona = PersonaState::new(&payload.id, &payload.name, &payload.system);
+    persona.archetype = payload.archetype;
+
+    // Initialiser des moniteurs par défaut selon le système
+    if payload.system.contains("shadowrun") {
+        persona.health_monitors.push(HealthMonitor {
+            name: "Physique".to_string(),
+            max_boxes: 10,
+            current_damage: 0,
+            penalty: 0,
+        });
+        persona.health_monitors.push(HealthMonitor {
+            name: "Étourdissant".to_string(),
+            max_boxes: 10,
+            current_damage: 0,
+            penalty: 0,
+        });
+    } else {
+        persona.health_monitors.push(HealthMonitor {
+            name: "Blessures".to_string(),
+            max_boxes: 12,
+            current_damage: 0,
+            penalty: 0,
+        });
+    }
+
+    let json_content = serde_json::to_string_pretty(&persona).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let md_content = persona.to_markdown();
+
+    std::fs::write(personae_dir.join(format!("{}.persona.json", payload.id)), json_content)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(personae_dir.join(format!("{}.persona.md", payload.id)), md_content)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(persona))
+}
+
+#[derive(Deserialize)]
 pub struct CreateTheaterRequest {
     pub id: String,
     pub manifest: Option<TheaterManifest>,
@@ -122,6 +211,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/machina/roll/shadowrun", post(roll_shadowrun_handler))
         .route("/api/machina/roll/ars-magica", post(roll_ars_magica_handler))
         .route("/api/machina/simulate/standard", post(simulate_standard_handler))
+        .route("/api/theaters/{id}/personae", post(create_persona_handler).get(list_personae_handler))
         .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
