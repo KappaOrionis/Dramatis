@@ -38,3 +38,4 @@ impl TheaterObsidianWatcher {
         Ok((watcher, rx))
     }
 }
+

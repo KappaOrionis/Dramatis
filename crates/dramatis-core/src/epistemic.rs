@@ -109,3 +109,4 @@ mod tests {
         assert!(!bob_view.contains("Code secret de la grille: 4780"));
     }
 }
+
