@@ -17,3 +17,4 @@ workspaces/*/05_plays/*/logs/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+
