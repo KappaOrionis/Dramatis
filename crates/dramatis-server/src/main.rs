@@ -3,17 +3,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::{Html, IntoResponse},
+    http::{header, StatusCode, Uri},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use dramatis_core::theater::{TheaterManifest, TheaterWorkspace};
+
+#[derive(RustEmbed)]
+#[folder = "../../web-ui/dist/"]
+struct Asset;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -48,10 +53,10 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState { workspaces_root });
 
     let app = Router::new()
-        .route("/", get(home_handler))
         .route("/health", get(health_handler))
         .route("/api/theaters", post(create_theater_handler).get(list_theaters_handler))
         .route("/api/theaters/{id}", get(get_theater_handler))
+        .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -65,267 +70,28 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn home_handler() -> impl IntoResponse {
-    Html(r#"<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DRAMATIS — Agentic Tabletop RPG Harness</title>
-    <style>
-        :root {
-            --canvas: #0B0C10;
-            --surface: #14161D;
-            --surface-elevated: #1C1F2A;
-            --border: rgba(255, 255, 255, 0.08);
-            --gold: #D4AF37;
-            --amber: #FF9F1C;
-            --teal: #00F0FF;
-            --purple: #A855F7;
-            --text-main: #F3F4F6;
-            --text-muted: #9CA3AF;
-            --green: #10B981;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background-color: var(--canvas);
-            color: var(--text-main);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        header {
-            height: 56px;
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 24px;
-        }
-        .brand {
-            font-size: 1.15rem;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            color: var(--gold);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .badge {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--green);
-            border: 1px solid rgba(16, 185, 129, 0.4);
-            padding: 4px 10px;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .badge::before {
-            content: "";
-            width: 8px;
-            height: 8px;
-            background: var(--green);
-            border-radius: 50%;
-            display: inline-block;
-        }
-        main {
-            flex: 1;
-            max-width: 1200px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 40px 24px;
-        }
-        .hero {
-            text-align: center;
-            margin-bottom: 48px;
-        }
-        .hero h1 {
-            font-size: 2.5rem;
-            font-weight: 800;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, var(--gold), #FFF);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .hero p {
-            color: var(--text-muted);
-            font-size: 1.1rem;
-            max-width: 650px;
-            margin: 0 auto;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-        }
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 24px;
-            transition: transform 0.2s, border-color 0.2s;
-        }
-        .card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(212, 175, 55, 0.35);
-        }
-        .card h3 {
-            font-size: 1.15rem;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .card p {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-            line-height: 1.5;
-        }
-        .card-amber h3 { color: var(--amber); }
-        .card-teal h3 { color: var(--teal); }
-        .card-gold h3 { color: var(--gold); }
-        .card-purple h3 { color: var(--purple); }
-        .console {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 24px;
-        }
-        .console h2 {
-            font-size: 1.25rem;
-            margin-bottom: 16px;
-            color: var(--text-main);
-        }
-        .action-row {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        input {
-            flex: 1;
-            background: var(--surface-elevated);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            padding: 10px 14px;
-            border-radius: 6px;
-            font-size: 0.95rem;
-            outline: none;
-        }
-        input:focus { border-color: var(--gold); }
-        button {
-            background: var(--gold);
-            color: #000;
-            font-weight: 700;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-        button:hover { opacity: 0.9; }
-        .theaters-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .theaters-list li {
-            background: var(--surface-elevated);
-            border: 1px solid var(--border);
-            padding: 12px 16px;
-            border-radius: 6px;
-            font-family: monospace;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <div class="brand">🎭 DRAMATIS</div>
-        <div class="badge">DAEMON ONLINE (v2.1.0)</div>
-    </header>
-    <main>
-        <div class="hero">
-            <h1>The Agentic Tabletop RPG Harness</h1>
-            <p>Narration vs Machina : La plume pour l'esprit, l'acier pour la loi.</p>
-        </div>
+async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let mut path = uri.path().trim_start_matches('/').to_string();
 
-        <div class="grid">
-            <div class="card card-gold">
-                <h3>📖 TheaterExplorer</h3>
-                <p>Gestionnaire de Théâtres .dramatis, ingestion de lore multimodale et Wiki relationnel sous Git.</p>
-            </div>
-            <div class="card card-amber">
-                <h3>⚙️ RulesLab</h3>
-                <p>Moteur Machina déterministe (Rhai, SQLite, Stress Dice, D6 pools) et simulateur Monte-Carlo.</p>
-            </div>
-            <div class="card card-teal">
-                <h3>🛡️ PersonaForge</h3>
-                <p>Création assistée (Ars Magica, SR6, Anastasius), Essence, Alliances, artisanat et coffre de groupe.</p>
-            </div>
-            <div class="card card-purple">
-                <h3>🎲 StageTable</h3>
-                <p>Régie de session, brouillard 3D, apartés privés StageChannels et console de supervision MJ.</p>
-            </div>
-        </div>
+    if path.is_empty() {
+        path = "index.html".to_string();
+    }
 
-        <div class="console">
-            <h2>Univers Actifs (Théâtres Détectés)</h2>
-            <div class="action-row">
-                <input type="text" id="theaterId" placeholder="Nom de l'univers (ex: ars-magica-5e, shadowrun-6e)...">
-                <button onclick="createTheater()">Initialiser un Théâtre</button>
-            </div>
-            <ul id="theatersList" class="theaters-list">
-                <li style="color: var(--text-muted); justify-content: center;">Chargement des univers...</li>
-            </ul>
-        </div>
-    </main>
-
-    <script>
-        async function loadTheaters() {
-            try {
-                const res = await fetch('/api/theaters');
-                const list = await res.json();
-                const container = document.getElementById('theatersList');
-                if (list.length === 0) {
-                    container.innerHTML = '<li style="color: var(--text-muted); justify-content: center;">Aucun univers initialisé. Utilisez le champ ci-dessus pour en créer un.</li>';
-                    return;
+    match Asset::get(&path) {
+        Some(content) => {
+            let mime = mime_guess::from_path(&path).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response()
+        }
+        None => {
+            // Fallback SPA vers index.html
+            match Asset::get("index.html") {
+                Some(content) => {
+                    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], content.data).into_response()
                 }
-                container.innerHTML = list.map(t => `<li><span>🎭 ${t}</span><span style="color: var(--green); font-size: 0.8rem;">● DISPONIBLE</span></li>`).join('');
-            } catch (e) {
-                console.error(e);
+                None => (StatusCode::NOT_FOUND, "Not Found").into_response(),
             }
         }
-
-        async function createTheater() {
-            const input = document.getElementById('theaterId');
-            const val = input.value.trim();
-            if (!val) return;
-            try {
-                await fetch('/api/theaters', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: val })
-                });
-                input.value = '';
-                await loadTheaters();
-            } catch (e) {
-                alert('Erreur lors de la création : ' + e);
-            }
-        }
-
-        loadTheaters();
-    </script>
-</body>
-</html>"#)
+    }
 }
 
 async fn health_handler() -> impl IntoResponse {
