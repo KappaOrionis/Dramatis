@@ -16,3 +16,4 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 tantivy = "0.22"
+aho-corasick = "1.1"
