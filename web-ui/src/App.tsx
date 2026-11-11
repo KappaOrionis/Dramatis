@@ -932,15 +932,32 @@ export default function App() {
     return th.replace('.dramatis', '');
   };
 
-  // Naviguer directement vers une source ou note de wiki depuis un badge source
-  const handleNavigateToSource = (sourcePath: string) => {
-    if (sourcePath.startsWith('00_sources') || sourcePath.endsWith('.pdf') || sourcePath.endsWith('.txt')) {
+  // Naviguer et ouvrir directement la visionneuse pour une source ou note
+  const handleNavigateToSource = async (sourcePath: string) => {
+    if (!sourcePath || !selectedTheater) return;
+
+    // Si c'est un fichier spécifique (avec extension)
+    if (sourcePath.includes('.')) {
+      try {
+        const res = await fetch(`/api/theaters/${selectedTheater}/sources/content?path=${encodeURIComponent(sourcePath)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setViewingSource(data);
+          return;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Fallback de navigation par étape
+    if (sourcePath.startsWith('00_sources') || sourcePath.endsWith('.pdf') || sourcePath.endsWith('.md') || sourcePath.endsWith('.txt')) {
       setActiveStep('sources');
     } else if (sourcePath.startsWith('01_wiki') || sourcePath.includes('/wiki/')) {
       setActiveStep('wiki');
       const found = wikiNotes.find(n => sourcePath.includes(n.slug) || sourcePath.includes(n.relative_path));
       if (found) setSelectedWikiNote(found);
-    } else if (sourcePath.startsWith('02_machina')) {
+    } else if (sourcePath.startsWith('03_personae')) {
       setActiveStep('stage');
     } else {
       setActiveStep('sources');
@@ -1383,11 +1400,11 @@ export default function App() {
         </header>
 
         {/* Contenu de l'étape active */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
           
           {/* ÉTAPE 1 : PRÉSENTATION DE L'UNIVERS (FICHE SIGNALÉTIQUE HARMONIEUSE OR/NOCTURNE AVEC SOURCES DÉTAILLÉES) */}
           {activeStep === 'signal' && signalSheet && (
-            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
               {/* En-tête */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1455,27 +1472,27 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
                     <Sparkles size={14} />
-                    <span>Synthèse Canonique de l'Univers</span>
+                    <span>Synthèse Déduite des Sources Canoniques</span>
                   </div>
-                  {/* Badge Source discret avec lien */}
+                  {/* Badge Source discret avec lien vers la liste des sources */}
                   <button
-                    onClick={() => handleNavigateToSource('theater.yaml')}
+                    onClick={() => setActiveStep('sources')}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       gap: '4px',
                       fontSize: '0.7rem',
                       fontFamily: 'var(--font-mono)',
-                      color: 'var(--text-dim)',
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--gold)',
+                      background: 'var(--gold-surface)',
+                      border: '1px solid var(--border-gold)',
                       padding: '2px 8px',
                       borderRadius: '4px'
                     }}
-                    title="Ouvrir la source dans l'univers"
+                    title="Voir les sources d'où provient cette synthèse"
                   >
-                    <span>source: theater.yaml</span>
-                    <ExternalLink size={10} />
+                    <span>Déduit de {sourcesList.length} source(s)</span>
+                    <ExternalLink size={9} />
                   </button>
                 </div>
                 <p style={{ fontFamily: 'var(--font-serif)', fontSize: '1.05rem', lineHeight: '1.6', color: 'var(--text-main)', whiteSpace: 'pre-line' }}>
@@ -1505,7 +1522,7 @@ export default function App() {
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em'
                   }}>
-                    Paramètres Canoniques & État Système
+                    Paramètres Canoniques Déduits des Sources
                   </span>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
                     Toutes les informations sont sourcées et vérifiées
@@ -1519,105 +1536,29 @@ export default function App() {
                       <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span>Système de Règles</span>
                         <button
-                          onClick={() => handleNavigateToSource('02_machina/system_schema.json')}
+                          onClick={() => setActiveStep('sources')}
                           style={{
                             fontSize: '0.68rem',
                             fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-dim)',
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--gold)',
+                            background: 'var(--gold-surface)',
+                            border: '1px solid var(--border-gold)',
                             padding: '1px 6px',
                             borderRadius: '4px',
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '3px'
                           }}
-                          title="Voir le schéma de règles déterministe"
+                          title="Voir les sources documentaires ayant déduit ce système"
                         >
-                          <span>02_machina/system_schema.json</span>
+                          <span>Déduit des {sourcesList.length} source(s)</span>
                           <ExternalLink size={9} />
                         </button>
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Modèle mécanique et résolution des dés</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Modèle mécanique et règles déduits du corpus injecté</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>{signalSheet.system_preset || 'Non renseigné'}</span>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{signalSheet.aura_or_matrix}</div>
-                    </div>
-                  </div>
-
-                  {/* Ligne Chronologie */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>Chronologie & Saison</span>
-                        <button
-                          onClick={() => handleNavigateToSource('theater.yaml')}
-                          style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-dim)',
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            border: '1px solid var(--border-subtle)',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Voir l'horloge chronos"
-                        >
-                          <span>theater.yaml [chronos]</span>
-                          <ExternalLink size={9} />
-                        </button>
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Temporalité fictionnelle en cours dans l'univers</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>{signalSheet.current_season || 'Aucune saison définie'}</span>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Cycle temporel actif</div>
-                    </div>
-                  </div>
-
-                  {/* Ligne Confidentialité */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>Mode de Confidentialité</span>
-                        <button
-                          onClick={() => handleNavigateToSource('theater.yaml')}
-                          style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-dim)',
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            border: '1px solid var(--border-subtle)',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Politique de confidentialité locale"
-                        >
-                          <span>privacy_mode: strict_local</span>
-                          <ExternalLink size={9} />
-                        </button>
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Politique d'isolation réseau et d'exécution locale</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{
-                        fontSize: '0.75rem',
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        background: 'rgba(212, 175, 55, 0.1)',
-                        color: 'var(--gold)',
-                        border: '1px solid rgba(212, 175, 55, 0.3)',
-                        fontWeight: 600
-                      }}>
-                        {signalSheet.privacy_mode === 'strict_local' ? 'Local Strict (0 appel cloud)' : signalSheet.privacy_mode}
-                      </span>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>{signalSheet.system_preset || 'En attente de sources'}</span>
                     </div>
                   </div>
 
@@ -2104,6 +2045,27 @@ export default function App() {
                             <Eye size={13} />
                             <span>Consulter</span>
                           </button>
+
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Supprimer la source "${src.file_name}" du bac à sable ?`)) return;
+                              const res = await fetch(`/api/theaters/${selectedTheater}/sources/${encodeURIComponent(src.file_name)}`, { method: 'DELETE' });
+                              if (res.ok) loadTheaterAll(selectedTheater);
+                            }}
+                            style={{
+                              padding: '5px 7px',
+                              borderRadius: '6px',
+                              background: 'rgba(255, 255, 255, 0.03)',
+                              border: '1px solid var(--border-subtle)',
+                              color: 'var(--text-dim)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                            title="Supprimer ce document source"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -2348,20 +2310,55 @@ export default function App() {
                         <span style={{ fontWeight: 600, color: 'var(--gold)', fontSize: '0.95rem' }}>
                           {selectedWikiNote.slug}
                         </span>
-                        {/* Affichage discret de la source */}
-                        <div style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontSize: '0.72rem',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--text-dim)',
-                          background: 'rgba(255, 255, 255, 0.03)',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border-subtle)'
-                        }}>
-                          <span>source: {selectedWikiNote.relative_path}</span>
+                        {/* Affichage discret de la source et bouton de suppression */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            onClick={() => handleNavigateToSource(selectedWikiNote.relative_path)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontSize: '0.72rem',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-dim)',
+                              background: 'rgba(255, 255, 255, 0.03)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid var(--border-subtle)'
+                            }}
+                            title="Ouvrir dans la visionneuse"
+                          >
+                            <span>source: {selectedWikiNote.relative_path}</span>
+                            <ExternalLink size={9} />
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Supprimer la note "${selectedWikiNote.slug}" ?`)) return;
+                              const res = await fetch(`/api/theaters/${selectedTheater}/wiki/${encodeURIComponent(selectedWikiNote.category)}/${encodeURIComponent(selectedWikiNote.slug)}`, {
+                                method: 'DELETE'
+                              });
+                              if (res.ok) {
+                                setSelectedWikiNote(null);
+                                loadTheaterAll(selectedTheater);
+                              }
+                            }}
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              background: 'rgba(255, 255, 255, 0.03)',
+                              border: '1px solid var(--border-subtle)',
+                              color: 'var(--text-dim)',
+                              fontSize: '0.72rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Supprimer cette note"
+                          >
+                            <Trash2 size={12} />
+                            <span>Supprimer</span>
+                          </button>
                         </div>
                       </div>
                       <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-serif)', fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
@@ -3045,14 +3042,76 @@ export default function App() {
 
             {/* Personnages */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                Personnages Présents ({personae.length})
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Personnages ({personae.length})
+                </span>
+                <button
+                  onClick={async () => {
+                    const name = prompt("Nom du nouveau personnage :");
+                    if (!name || !name.trim()) return;
+                    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                    const res = await fetch(`/api/theaters/${selectedTheater}/personae`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        id,
+                        name: name.trim(),
+                        role: 'PlayerCharacter',
+                        attributes: {},
+                        skills: {}
+                      })
+                    });
+                    if (res.ok) loadTheaterAll(selectedTheater);
+                  }}
+                  style={{ fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 600 }}
+                >
+                  + Ajouter
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {personae.map((p, idx) => (
-                  <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ color: 'var(--gold)', fontWeight: 600 }}>{p.name}</div>
-                    <div style={{ color: 'var(--text-dim)' }}>{p.id}</div>
+                  <div key={idx} style={{
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    fontSize: '0.75rem',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div
+                      onClick={() => handleNavigateToSource(`03_personae/${p.id}.persona.json`)}
+                      style={{ cursor: 'pointer', flex: 1 }}
+                      title="Consulter la fiche du personnage"
+                    >
+                      <div style={{ color: 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{p.name}</span>
+                        <ExternalLink size={9} color="var(--text-dim)" />
+                      </div>
+                      <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>{p.id}</div>
+                    </div>
+
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Supprimer le personnage "${p.name}" ?`)) return;
+                        const res = await fetch(`/api/theaters/${selectedTheater}/personae/${encodeURIComponent(p.id)}`, {
+                          method: 'DELETE'
+                        });
+                        if (res.ok) loadTheaterAll(selectedTheater);
+                      }}
+                      style={{
+                        padding: '4px',
+                        borderRadius: '4px',
+                        color: 'var(--text-dim)',
+                        background: 'transparent'
+                      }}
+                      title="Supprimer ce personnage"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 ))}
               </div>

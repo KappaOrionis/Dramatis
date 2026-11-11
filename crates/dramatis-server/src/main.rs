@@ -752,7 +752,8 @@ async fn list_sources_handler(
 
 #[derive(Deserialize)]
 pub struct SourceContentQuery {
-    pub file_name: String,
+    pub file_name: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -771,7 +772,18 @@ async fn get_source_content_handler(
     Query(query): Query<SourceContentQuery>,
 ) -> Result<Json<SourceContentResponse>, StatusCode> {
     let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
-    let file_path = theater_path.join("00_sources").join(&query.file_name);
+
+    let (file_path, display_name, rel_path) = if let Some(p) = &query.path {
+        let clean_rel = p.trim_start_matches('/').trim_start_matches('\\');
+        let full = theater_path.join(clean_rel);
+        let name = full.file_name().and_then(|s| s.to_str()).unwrap_or(clean_rel).to_string();
+        (full, name, clean_rel.to_string())
+    } else if let Some(name) = &query.file_name {
+        let full = theater_path.join("00_sources").join(name);
+        (full, name.clone(), format!("00_sources/{}", name))
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
 
     if !file_path.exists() || !file_path.is_file() {
         return Err(StatusCode::NOT_FOUND);
@@ -789,13 +801,75 @@ async fn get_source_content_handler(
     };
 
     Ok(Json(SourceContentResponse {
-        file_name: query.file_name.clone(),
-        relative_path: format!("00_sources/{}", query.file_name),
+        file_name: display_name,
+        relative_path: rel_path,
         file_type,
         size_bytes,
         content,
         is_binary,
     }))
+}
+
+async fn delete_source_file_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, file_name)): Path<(String, String)>,
+) -> Result<StatusCode, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let file_path = theater_path.join("00_sources").join(&file_name);
+
+    if !file_path.exists() || !file_path.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    std::fs::remove_file(&file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_wiki_note_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, category, slug)): Path<(String, String, String)>,
+) -> Result<StatusCode, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let file_path = theater_path.join("01_wiki").join(&category).join(format!("{}.md", slug));
+
+    if !file_path.exists() || !file_path.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    std::fs::remove_file(&file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_persona_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, persona_id)): Path<(String, String)>,
+) -> Result<StatusCode, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let p_dir = theater_path.join("03_personae");
+
+    let json_path = p_dir.join(format!("{}.persona.json", persona_id));
+    let md_path = p_dir.join(format!("{}.persona.md", persona_id));
+    let psyche_path = p_dir.join(format!("{}.psyche.json", persona_id));
+
+    let mut deleted = false;
+    if json_path.exists() {
+        let _ = std::fs::remove_file(json_path);
+        deleted = true;
+    }
+    if md_path.exists() {
+        let _ = std::fs::remove_file(md_path);
+        deleted = true;
+    }
+    if psyche_path.exists() {
+        let _ = std::fs::remove_file(psyche_path);
+        deleted = true;
+    }
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }
 
 async fn get_source_raw_file_handler(
@@ -858,51 +932,56 @@ async fn get_theater_signals_handler(
         .map(|r| r.flatten().count())
         .unwrap_or(0);
 
-    let system_id = ws.manifest.system_id.clone();
+    // Déduction automatique du système de règles et de la synthèse d'après les sources injectées
+    let sources_dir = theater_path.join("00_sources");
+    let mut detected_system = ws.manifest.system_id.clone();
+    let mut detected_snippets: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&sources_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string().to_lowercase();
+            if name.contains("ars magica") || name.contains("arm5") || name.contains("hermes") {
+                detected_system = "Ars Magica 5e".to_string();
+                detected_snippets.push(format!("Source '{}' : Règles hermétiques et univers médiéval mythique", entry.file_name().to_string_lossy()));
+            } else if name.contains("shadowrun") || name.contains("sr6") {
+                detected_system = "Shadowrun 6e".to_string();
+                detected_snippets.push(format!("Source '{}' : Cyberpunk & magie urbaine Seattle", entry.file_name().to_string_lossy()));
+            } else if name.contains("anastasius") {
+                detected_system = "Anastasius".to_string();
+                detected_snippets.push(format!("Source '{}' : Résonance Éthérique Harmonique", entry.file_name().to_string_lossy()));
+            }
+        }
+    }
+
     let privacy = ws.manifest.privacy_mode.clone().unwrap_or_else(|| "strict_local".to_string());
 
-    let aura_or_matrix = match system_id.as_str() {
-        "ArsMagica5e" | "ars-magica-5e" => "Aura Hermétique Niv. 5 (Magic) — Val Negra".to_string(),
-        "Shadowrun6e" | "shadowrun-6e" => "Grille Sécurisée Seattle / GOD Convergence Rating 3".to_string(),
-        "Anastasius" | "anastasius-homebrew" => "Résonance Éthérique Harmonique 2d12 / Synode d'Airain".to_string(),
-        _ => "Standard Deterministic VTT Matrix".to_string(),
-    };
-
-    let current_season_fr = match ws.manifest.chronos.current_season.as_deref() {
-        Some("Spring") => "Printemps",
-        Some("Summer") => "Été",
-        Some("Autumn") => "Automne",
-        Some("Winter") => "Hiver",
-        Some(other) => other,
-        None => "Non défini",
-    };
-
-    let year_str = match ws.manifest.chronos.current_year {
-        Some(y) => format!(" (An {})", y),
-        None => String::new(),
-    };
-
-    let chronos_display = format!("{}{}", current_season_fr, year_str);
-
-    let sources_summary = if sources_count == 0 {
-        "Aucune source documentaire injectée. L'assistant fonctionne en attente de documents canoniques.".to_string()
+    let dynamic_rules = if detected_snippets.is_empty() {
+        if sources_count == 0 {
+            "En attente de sources documentaires canoniques".to_string()
+        } else {
+            detected_system.clone()
+        }
     } else {
-        format!("{} document(s) canonique(s) analysé(s) et indexé(s) dans le bac à sable.", sources_count)
+        detected_system.clone()
     };
 
-    let agent_curator_summary = format!(
-        "Univers '{}' gouverné par les règles '{}'. {}\nLe carnet compte {} note(s) rédigée(s) et {} personnage(s) enregistré(s).",
-        ws.manifest.name,
-        system_id,
-        sources_summary,
-        wiki_count,
-        personae_count
-    );
+    let dynamic_summary = if sources_count == 0 {
+        "Aucune source documentaire n'est injectée dans le bac à sable. L'assistant et l'Archiviste attendent vos documents de règles pour en déduire les lois et faits canoniques.".to_string()
+    } else {
+        format!(
+            "Synthèse déduite de {} document(s) source(s) injecté(s) :\n- Système de règles identifié : {}\n- Le corpus comprend {} document(s) canonique(s), {} note(s) et {} personnage(s). Toutes les réponses et verdicts s'appuient strictement sur ces sources.",
+            sources_count,
+            dynamic_rules,
+            sources_count,
+            wiki_count,
+            personae_count
+        )
+    };
 
     Ok(Json(TheaterSignalSheet {
         theater_id: id,
         name: ws.manifest.name,
-        system_preset: system_id,
+        system_preset: dynamic_rules,
         privacy_mode: privacy,
         default_language: "fr".to_string(),
         sources_count,
@@ -910,9 +989,9 @@ async fn get_theater_signals_handler(
         personae_count,
         tables_count,
         plays_count,
-        current_season: chronos_display,
-        aura_or_matrix,
-        agent_curator_summary,
+        current_season: String::new(),
+        aura_or_matrix: String::new(),
+        agent_curator_summary: dynamic_summary,
     }))
 }
 
@@ -1343,6 +1422,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
         .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
         .route("/api/theaters/{id}/sources/content", get(get_source_content_handler))
+        .route("/api/theaters/{id}/sources/{file_name}", axum::routing::delete(delete_source_file_handler))
         .route("/api/theaters/{id}/sources/raw/{file_name}", get(get_source_raw_file_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
@@ -1350,6 +1430,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/ingest/markdown", post(ingest_markdown_handler))
         .route("/api/theaters/{id}/ingest/reconcile", post(reconcile_tables_handler))
         .route("/api/theaters/{id}/wiki", get(list_wiki_notes_handler).patch(patch_wiki_section_handler))
+        .route("/api/theaters/{id}/wiki/{category}/{slug}", axum::routing::delete(delete_wiki_note_handler))
         .route("/api/theaters/{id}/rag/search", post(search_hybrid_handler))
         .route("/api/theaters/{id}/agents/archivist", post(archivist_query_handler))
         .route("/api/theaters/{id}/mysteries", get(get_mysteries_board_handler))
@@ -1367,6 +1448,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/machina/tables", get(list_sql_tables_handler))
         // Module 5 : PersonaForge, Creation, Artificer, Alliances & Ledger
         .route("/api/theaters/{id}/personae", post(create_persona_handler).get(list_personae_handler))
+        .route("/api/theaters/{id}/personae/{persona_id}", axum::routing::delete(delete_persona_handler))
         .route("/api/persona/validate/sr6", post(validate_sr6_creation_handler))
         .route("/api/persona/validate/ars-magica", post(validate_ars_creation_handler))
         .route("/api/persona/artificer", post(evaluate_artificer_handler))
