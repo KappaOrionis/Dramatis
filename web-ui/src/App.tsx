@@ -18,7 +18,8 @@ import {
   Pin,
   Edit2,
   ExternalLink,
-  Bot
+  Bot,
+  SlidersHorizontal
 } from 'lucide-react';
 
 interface TheaterSnapshot {
@@ -79,72 +80,240 @@ interface TheaterDetails {
   agent_routing?: Record<string, string>;
 }
 
-// Définition des 7 agents du harnais Dramatis
-interface AgentSpec {
+// Paramètre réglable individuel pour un agent
+interface AgentParamSpec {
   key: string;
-  name: string;
-  pole: 'Régie' | 'Plateau';
+  label: string;
   description: string;
-  defaultModel: string;
-  roleHint: string;
+  type: 'select' | 'range' | 'text' | 'boolean' | 'number';
+  defaultValue: any;
+  options?: { value: string; label: string }[];
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
 }
 
-const HARNESS_AGENTS: AgentSpec[] = [
+// Spécification complète et structurée d'un des 7 agents du harnais
+interface AgentDetailedSpec {
+  key: string;
+  name: string;
+  role: string;
+  pole: 'Régie' | 'Plateau';
+  mission: string;
+  writeScope: string;
+  defaultModel: string;
+  params: AgentParamSpec[];
+}
+
+const HARNESS_AGENTS_SPECS: AgentDetailedSpec[] = [
   {
     key: 'archivist',
     name: "L'Archiviste",
+    role: "Chercheur Documentaire Canonique (RAG Hybride)",
     pole: 'Régie',
-    description: 'Recherche hybride documentaire stricte (BM25 + RRF), citations obligatoires, silence si non sourcé.',
+    mission: "Lecture seule et interrogation stricte des sources documentaires injectées. Exécute le RAG Hybride (BM25 + LanceDB + Graphe RRF). Fournit obligatoirement la citation [Fichier, p. X]. Déclare formellement le silence documentaire si l'information est absente sans jamais rien inventer.",
+    writeScope: "Lecture seule (aucun droit d'écriture sur le carnet)",
     defaultModel: 'Local Strict (LanceDB + Tantivy BM25)',
-    roleHint: 'Moteur de faits documentaires réels sans invention'
+    params: [
+      {
+        key: 'max_citations',
+        label: 'Nombre maximal de citations',
+        description: 'Plafond des extraits sources cités par réponse',
+        type: 'number',
+        defaultValue: 3,
+        min: 1,
+        max: 8,
+        unit: 'extraits'
+      },
+      {
+        key: 'silence_strictness',
+        label: 'Rigueur du silence documentaire',
+        description: 'Refuser toute extrapolation en l’absence de mention explicite',
+        type: 'select',
+        defaultValue: 'strict',
+        options: [
+          { value: 'strict', label: 'Strict (Silence absolu si non sourcé)' },
+          { value: 'permissive', label: 'Prudent (Signale la lacune mais suggère un contexte)' }
+        ]
+      }
+    ]
   },
   {
     key: 'scribe',
     name: 'Le Scribe',
+    role: "Chroniqueur & Secrétaire Encyclopédique",
     pole: 'Régie',
-    description: 'Entités du wiki, détection des doublons, auto-wikilinking [[WikiLinks]] et mise à jour des mystères.',
+    mission: "Gouvernance de l'encyclopédie et des notes. Analyse les textes pour résoudre les entités, fusionner les doublons, appliquer l'auto-wikilinking Aho-Corasick [[WikiLinks]] et mettre à jour le tableau des mystères post-séance.",
+    writeScope: "/01_wiki, /05_plays/.../world_state_delta, knowledge_graph.sqlite",
     defaultModel: 'Local Scribe Parser (Aho-Corasick + SQLite)',
-    roleHint: 'Secrétaire canonique et gardien du savoir de campagne'
+    params: [
+      {
+        key: 'similarity_threshold',
+        label: 'Seuil anti-doublons entités',
+        description: 'Score au-delà duquel deux entités similaires sont fusionnées',
+        type: 'range',
+        defaultValue: 0.90,
+        min: 0.50,
+        max: 1.00,
+        step: 0.05,
+        unit: 'ratio'
+      },
+      {
+        key: 'auto_wikilink',
+        label: 'Auto-wikilinking [[WikiLinks]]',
+        description: 'Lier automatiquement les noms de personnes et lieux répertoriés',
+        type: 'boolean',
+        defaultValue: true
+      }
+    ]
   },
   {
     key: 'arbiter',
     name: 'Le Légiste (Arbitre)',
+    role: "Monopole Mathématique & Déterministe des Règles",
     pole: 'Régie',
-    description: 'Calcul déterministe absolu (Rhai Sandbox, SQLite, dés et probabilités Monte-Carlo 10 000 itérations).',
+    mission: "Application mathématique absolue des lois de jeu. Exécute les formules dans une sandbox sandboxée Rhai, interroge les tables SQLite de règles, lance les dés spécialisés (Stress Ars Magica, Dicepool Shadowrun) et simule les probabilités Monte-Carlo (10 000 itérations). Les LLM ne calculent jamais à sa place.",
+    writeScope: "Sandbox Rhai en mémoire & tables.sqlite (lecture seule des tables)",
     defaultModel: 'Dramatis Machina Rust Sandbox (Déterministe)',
-    roleHint: 'Monopole mathématique des règles, modificateurs et dés'
+    params: [
+      {
+        key: 'monte_carlo_iterations',
+        label: 'Itérations Monte-Carlo',
+        description: 'Volume de lancers pour les prédictions statistiques de probabilités',
+        type: 'select',
+        defaultValue: '10000',
+        options: [
+          { value: '1000', label: '1 000 itérations (Rapide)' },
+          { value: '10000', label: '10 000 itérations (Recommandé - Précision < 1%)' },
+          { value: '50000', label: '50 000 itérations (Haute précision)' }
+        ]
+      },
+      {
+        key: 'strict_rhai_sandbox',
+        label: 'Isolation stricte du moteur Rhai',
+        description: 'Interdire toute fonction non déclarée dans system_schema.json',
+        type: 'boolean',
+        defaultValue: true
+      }
+    ]
   },
   {
     key: 'steward',
     name: "L'Intendant",
+    role: "Gestionnaire des Personnages & Ressources",
     pole: 'Régie',
-    description: 'Création de personnages, suivi des moniteurs de santé/essence, inventaire de groupe et ateliers d’artisanat.',
+    mission: "Assiste la création de personnages en validant les budgets de points, priorités et caractéristiques. Surveille l'intégrité des moniteurs (Santé, Dégâts, Essence décimale exacte). Supervise le coffre de groupe et les ateliers d'artisanat hermétique/technologique.",
+    writeScope: "/03_personae/*.json, /03_personae/*.md",
     defaultModel: 'Steward Agent Engine (JSON-Schema Validation)',
-    roleHint: 'Gestionnaire des ressources matérielles et fiches PJ/PNJ'
+    params: [
+      {
+        key: 'auto_monitor_sync',
+        label: 'Synchronisation automatique des moniteurs',
+        description: 'Déduire automatiquement les blessures et pertes de ressources',
+        type: 'boolean',
+        defaultValue: true
+      },
+      {
+        key: 'crafting_budget_enforcement',
+        label: 'Contrôle des ateliers d’artisanat',
+        description: 'Vérifier la disponibilité des vis et matériaux avant fabrication',
+        type: 'select',
+        defaultValue: 'enforce_strict',
+        options: [
+          { value: 'enforce_strict', label: 'Strict (Refuse la fabrication si composant manquant)' },
+          { value: 'allow_deficit', label: 'Souple (Alerte le MJ mais valide l’action)' }
+        ]
+      }
+    ]
   },
   {
     key: 'playwright',
     name: 'Le Dramaturge',
+    role: "Architecte Nodal de Campagne & Horloges",
     pole: 'Régie',
-    description: 'Architecture nodale des scénarios, calibrage des horloges de tension et aménagement des zones de scène.',
+    mission: "Conception et équilibrage de la structure dramatique nodale. Calibre les horloges de tension et d'alerte, aménage les zones tactiques et ajuste les seuils de progression narrative en coulisses.",
+    writeScope: "/05_plays/{id}/campaign_manifest.json, /05_plays/{id}/nodes/*.json",
     defaultModel: 'Playwright Nodal Architect (Local / LM Studio)',
-    roleHint: 'Concepteur des intrigues et de l’espace dramatique'
+    params: [
+      {
+        key: 'clock_progression_pace',
+        label: 'Rythme d’avancement des horloges',
+        description: 'Sensibilité des horloges d’alerte aux échecs des joueurs',
+        type: 'select',
+        defaultValue: 'standard',
+        options: [
+          { value: 'cautious', label: 'Prudent (1 cran par échec critique)' },
+          { value: 'standard', label: 'Standard (1 cran par revers mécanique)' },
+          { value: 'relentless', label: 'Implacable (Horloges à progression rapide)' }
+        ]
+      }
+    ]
   },
   {
     key: 'director',
     name: 'Le Metteur en Scène (MJ)',
+    role: "Maître du Jeu Virtuel & Ambiance de Scène",
     pole: 'Plateau',
-    description: 'Cadrage narratif, descriptions sensorielles et transposition littéraire des verdicts du Légiste.',
+    mission: "Voix narrative principale de la table en direct. Cadre la scène, offre des descriptions sensorielles immersives et traduit littérairement les verdicts mathématiques impénétrables du Légiste. Peut déclencher l'orchestration sonore et vocale.",
+    writeScope: "/05_plays/{id}/active_scene.json, flux audio / TTS",
     defaultModel: 'Director Creative Synthesizer (Local / LM Studio)',
-    roleHint: 'Voix et ambiance de la table virtuelle en direct'
+    params: [
+      {
+        key: 'narrative_style',
+        label: 'Registre narratif',
+        description: 'Tonalité générale et style d’écriture des descriptions',
+        type: 'select',
+        defaultValue: 'nocturne',
+        options: [
+          { value: 'nocturne', label: 'Nocturne Théâtral & Sensoriel (Style Dramatis)' },
+          { value: 'heroic', label: 'Épique & Dynamique' },
+          { value: 'gritty', label: 'Réaliste & Sombre (Dark Fantasy / Cyberpunk)' },
+          { value: 'concise', label: 'Factuel & Synthétique' }
+        ]
+      },
+      {
+        key: 'sensory_details',
+        label: 'Degré de détail sensoriel',
+        description: 'Inclure odeurs, bruits d’ambiance, matières et température',
+        type: 'range',
+        defaultValue: 0.8,
+        min: 0.1,
+        max: 1.0,
+        step: 0.1,
+        unit: 'intensité'
+      }
+    ]
   },
   {
     key: 'actor',
     name: "L'Acteur Bot",
+    role: "Incarnation Bot PJ/PNJ & Brouillard de Guerre",
     pole: 'Plateau',
-    description: 'Incarnation réactive d’un PJ/PNJ sous filtre strict du Brouillard de Guerre (AgentContextView).',
+    mission: "Incarne des compagnons PJ ou des PNJ autonomes en temps réel. Fonctionne sous le filtre hermétique de l'AgentContextView (Brouillard de guerre cognitif, spatial et planaire) : il ignore les secrets du MJ et ne réagit qu'à ce que son personnage peut percevoir. Formule des intentions mécaniques déclaratives soumises à l'arbitre.",
+    writeScope: "Mémoire épisodique personnelle de l'acteur",
     defaultModel: 'Actor Persona Bot (Local Strict Isolation)',
-    roleHint: 'Émetteur d’intentions déclaratives selon ses souvenirs'
+    params: [
+      {
+        key: 'proactivity',
+        label: 'Proactivité en scène',
+        description: 'Fréquence de prise d’initiative du bot sans interpellation directe',
+        type: 'select',
+        defaultValue: 'balanced',
+        options: [
+          { value: 'reactive', label: 'Réactif (Ne parle que si sollicité)' },
+          { value: 'balanced', label: 'Équilibré (Prend la parole quand la situation l’impose)' },
+          { value: 'bold', label: 'Audacieux (Prend fréquemment des initiatives)' }
+        ]
+      },
+      {
+        key: 'strict_fog_of_war',
+        label: 'Brouillard de guerre strict (AgentContextView)',
+        description: 'Interdiction absolue de voir les blocs secrets :::secret ou métadonnées MJ',
+        type: 'boolean',
+        defaultValue: true
+      }
+    ]
   }
 ];
 
@@ -175,6 +344,7 @@ export default function App() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [, setTheaterDetails] = useState<TheaterDetails | null>(null);
   const [agentRoutingState, setAgentRoutingState] = useState<Record<string, string>>({});
+  const [agentParamValues, setAgentParamValues] = useState<Record<string, any>>({});
   const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
 
   // Données de l'univers actif
@@ -273,10 +443,24 @@ export default function App() {
         
         // Initialiser la configuration locale des 7 agents
         const initialRouting: Record<string, string> = {};
-        for (const agent of HARNESS_AGENTS) {
+        const initialParams: Record<string, any> = {};
+
+        for (const agent of HARNESS_AGENTS_SPECS) {
           initialRouting[agent.key] = det.agent_routing?.[agent.key] || agent.defaultModel;
+          for (const param of agent.params) {
+            const paramKey = `${agent.key}__${param.key}`;
+            const stored = det.agent_routing?.[paramKey];
+            if (stored !== undefined) {
+              if (param.type === 'number' || param.type === 'range') initialParams[paramKey] = Number(stored);
+              else if (param.type === 'boolean') initialParams[paramKey] = stored === 'true';
+              else initialParams[paramKey] = stored;
+            } else {
+              initialParams[paramKey] = param.defaultValue;
+            }
+          }
         }
         setAgentRoutingState(initialRouting);
+        setAgentParamValues(initialParams);
       }
     } catch (e) {
       console.error(e);
@@ -353,11 +537,17 @@ export default function App() {
   const handleSaveAgentConfigs = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Fusionner les modèles d'agents et leurs paramètres réglables dans le dictionnaire routing
+      const mergedRouting: Record<string, string> = { ...agentRoutingState };
+      for (const [k, v] of Object.entries(agentParamValues)) {
+        mergedRouting[k] = String(v);
+      }
+
       const res = await fetch(`/api/theaters/${selectedTheater}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agent_routing: agentRoutingState
+          agent_routing: mergedRouting
         })
       });
       if (res.ok) {
@@ -1311,7 +1501,7 @@ export default function App() {
                   </h2>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'gap', gap: '8px' }}>
                   <button
                     onClick={() => setIsAddingSource(true)}
                     style={{
@@ -2055,21 +2245,21 @@ export default function App() {
             background: 'var(--surface)',
             border: '1px solid var(--border)',
             borderRadius: '16px',
-            padding: '28px',
-            width: '680px',
-            maxHeight: '90vh',
+            padding: '24px',
+            width: '740px',
+            maxHeight: '92vh',
             display: 'flex',
             flexDirection: 'column',
-            gap: '20px',
+            gap: '16px',
             boxShadow: '0 16px 40px rgba(0,0,0,0.8)'
           }}>
             {/* En-tête */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '14px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)' }}>
                   <Bot size={20} />
                   <span style={{ fontWeight: 700, fontSize: '1.2rem', fontFamily: 'var(--font-title)', letterSpacing: '0.04em' }}>
-                    Configuration des Agents du Carnet
+                    Configuration & Paramètres des 7 Agents du Carnet
                   </span>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px' }}>
@@ -2081,13 +2271,13 @@ export default function App() {
 
             {/* Note doctrinale */}
             <div style={{ background: 'rgba(212, 175, 55, 0.04)', border: '1px solid rgba(212, 175, 55, 0.2)', padding: '10px 14px', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-              <strong style={{ color: 'var(--gold)' }}>Gouvernance Dramatis :</strong> Chaque agent possède une mission étanche. Les modèles locaux n'inventent aucun fait documentaire et ne calculent aucune règle mathématique, préservant la souveraineté stricte du carnet.
+              <strong style={{ color: 'var(--gold)' }}>Séparation Récit / Loi & Souveraineté :</strong> Chaque agent possède une mission et un rôle délimités. Les paramètres ci-dessous permettent d'ajuster leur comportement, seuils et tolérances sans jamais compromettre le déterminisme des règles ou l'étanchéité du carnet.
             </div>
 
-            {/* Liste des 7 Agents à configurer */}
-            <form onSubmit={handleSaveAgentConfigs} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingRight: '4px' }}>
-              {HARNESS_AGENTS.map((agent) => {
-                const currentVal = agentRoutingState[agent.key] || agent.defaultModel;
+            {/* Liste exhaustive des 7 Agents avec Nom, Missions/Rôles et Paramètres Réglables */}
+            <form onSubmit={handleSaveAgentConfigs} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '6px' }}>
+              {HARNESS_AGENTS_SPECS.map((agent) => {
+                const currentModel = agentRoutingState[agent.key] || agent.defaultModel;
 
                 return (
                   <div
@@ -2095,45 +2285,63 @@ export default function App() {
                     style={{
                       background: 'var(--surface-elevated)',
                       border: '1px solid var(--border)',
-                      borderRadius: '10px',
-                      padding: '14px',
+                      borderRadius: '12px',
+                      padding: '16px',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '8px'
+                      gap: '12px'
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--gold)' }}>
-                          {agent.name}
-                        </span>
-                        <span style={{
-                          fontSize: '0.68rem',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 159, 28, 0.1)',
-                          color: agent.pole === 'Régie' ? 'var(--teal)' : 'var(--amber)',
-                          border: `1px solid ${agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.3)' : 'rgba(255, 159, 28, 0.3)'}`
-                        }}>
-                          Pôle {agent.pole}
-                        </span>
+                    {/* Ligne 1 : Nom, Rôle Métier, Pôle et Identifiant */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--gold)' }}>
+                            {agent.name}
+                          </span>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            background: agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 159, 28, 0.1)',
+                            color: agent.pole === 'Régie' ? 'var(--teal)' : 'var(--amber)',
+                            border: `1px solid ${agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.3)' : 'rgba(255, 159, 28, 0.3)'}`,
+                            fontWeight: 600
+                          }}>
+                            Pôle {agent.pole}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 500, marginTop: '2px' }}>
+                          {agent.role}
+                        </div>
                       </div>
+
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
                         dramatis.{agent.key}
                       </span>
                     </div>
 
-                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                      {agent.description}
-                    </p>
+                    {/* Ligne 2 : Missions & Périmètre */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', background: 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Mission & Responsabilités :
+                      </div>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.45' }}>
+                        {agent.mission}
+                      </p>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                        <strong>Périmètre d'action :</strong> <code>{agent.writeScope}</code>
+                      </div>
+                    </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)', minWidth: '120px' }}>
+                    {/* Ligne 3 : Moteur / Modèle assigné */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-dim)', minWidth: '130px', fontWeight: 500 }}>
                         Moteur / Modèle :
                       </label>
                       <input
                         type="text"
-                        value={currentVal}
+                        value={currentModel}
                         onChange={(e) => setAgentRoutingState({
                           ...agentRoutingState,
                           [agent.key]: e.target.value
@@ -2150,13 +2358,150 @@ export default function App() {
                         }}
                       />
                     </div>
+
+                    {/* Ligne 4 : Paramètres Réglables Spécifiques */}
+                    {agent.params.length > 0 && (
+                      <div style={{
+                        marginTop: '4px',
+                        paddingTop: '10px',
+                        borderTop: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontWeight: 600, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <SlidersHorizontal size={12} />
+                          <span>Paramètres Réglables :</span>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {agent.params.map((param) => {
+                            const paramKey = `${agent.key}__${param.key}`;
+                            const paramVal = agentParamValues[paramKey] !== undefined ? agentParamValues[paramKey] : param.defaultValue;
+
+                            return (
+                              <div
+                                key={param.key}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '16px',
+                                  background: 'rgba(255, 255, 255, 0.015)',
+                                  padding: '8px 12px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-subtle)'
+                                }}
+                              >
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                    {param.label}
+                                  </div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '1px' }}>
+                                    {param.description}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {param.type === 'select' && param.options && (
+                                    <select
+                                      value={paramVal}
+                                      onChange={(e) => setAgentParamValues({
+                                        ...agentParamValues,
+                                        [paramKey]: e.target.value
+                                      })}
+                                      style={{
+                                        background: 'var(--canvas)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '4px',
+                                        padding: '4px 8px',
+                                        fontSize: '0.75rem',
+                                        color: 'var(--text-main)'
+                                      }}
+                                    >
+                                      {param.options.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                      ))}
+                                    </select>
+                                  )}
+
+                                  {param.type === 'range' && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <input
+                                        type="range"
+                                        min={param.min}
+                                        max={param.max}
+                                        step={param.step}
+                                        value={paramVal}
+                                        onChange={(e) => setAgentParamValues({
+                                          ...agentParamValues,
+                                          [paramKey]: Number(e.target.value)
+                                        })}
+                                        style={{ width: '90px' }}
+                                      />
+                                      <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', minWidth: '35px', textAlign: 'right' }}>
+                                        {paramVal}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {param.type === 'number' && (
+                                    <input
+                                      type="number"
+                                      min={param.min}
+                                      max={param.max}
+                                      value={paramVal}
+                                      onChange={(e) => setAgentParamValues({
+                                        ...agentParamValues,
+                                        [paramKey]: Number(e.target.value)
+                                      })}
+                                      style={{
+                                        width: '60px',
+                                        background: 'var(--canvas)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '4px',
+                                        padding: '4px 6px',
+                                        fontSize: '0.75rem',
+                                        color: 'var(--text-main)',
+                                        textAlign: 'center'
+                                      }}
+                                    />
+                                  )}
+
+                                  {param.type === 'boolean' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setAgentParamValues({
+                                        ...agentParamValues,
+                                        [paramKey]: !paramVal
+                                      })}
+                                      style={{
+                                        padding: '3px 10px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 600,
+                                        background: paramVal ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                        color: paramVal ? 'var(--green)' : 'var(--text-dim)',
+                                        border: `1px solid ${paramVal ? 'rgba(16, 185, 129, 0.3)' : 'var(--border)'}`
+                                      }}
+                                    >
+                                      {paramVal ? 'Activé' : 'Désactivé'}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
                 <span style={{ fontSize: '0.78rem', color: configSaveSuccess ? 'var(--green)' : 'var(--text-dim)' }}>
-                  {configSaveSuccess ? '✓ Configuration enregistrée dans theater.yaml' : 'Modifications enregistrées localement par carnet.'}
+                  {configSaveSuccess ? '✓ Configuration et paramètres enregistrés dans theater.yaml' : 'Modifications enregistrées localement par carnet.'}
                 </span>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
