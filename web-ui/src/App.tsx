@@ -3474,7 +3474,7 @@ export default function App() {
          ========================================================================= */}
       {isDrawerOpen && (
         <aside style={{
-          width: '460px',
+          width: '50%',
           flexShrink: 0,
           background: 'var(--sidebar-bg)',
           borderLeft: '1px solid var(--border)',
@@ -3844,9 +3844,9 @@ export default function App() {
                       </div>
 
                       <div style={{
-                        fontFamily: msg.role === 'archivist' ? 'var(--font-serif)' : 'var(--font-sans)',
-                        fontSize: '0.84rem',
-                        lineHeight: '1.55',
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: '0.94rem',
+                        lineHeight: '1.6',
                         color: 'var(--text-main)',
                         whiteSpace: 'pre-line'
                       }}>
