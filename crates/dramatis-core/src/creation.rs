@@ -190,3 +190,4 @@ mod tests {
         assert_eq!(res.effective_magic_rating, Some(3));
     }
 }
+

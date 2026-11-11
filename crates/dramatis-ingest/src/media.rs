@@ -133,3 +133,4 @@ mod tests {
         assert_eq!(res.perceptual_hash.len(), 16);
     }
 }
+

@@ -159,3 +159,4 @@ mod tests {
         assert_eq!(after_rewind[0].sequence_id, 1);
     }
 }
+

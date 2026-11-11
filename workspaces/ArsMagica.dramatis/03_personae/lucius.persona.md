@@ -11,3 +11,4 @@ Mage combattant spécialisé dans les arts de `Creo` et `Ignem`, maître du *Pil
 ## Serment Personnel
 Lucius a juré devant le Quaesitor de Saragosse de ne jamais employer la flamme hermétique contre les bergers de la vallée d'Aure.
 <!-- /LOCKED_BY_USER -->
+

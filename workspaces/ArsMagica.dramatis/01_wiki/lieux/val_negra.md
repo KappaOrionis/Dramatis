@@ -16,3 +16,4 @@ Sous la bibliothèque principale repose un ancien autel de Mercure scellé par B
 ## Charte du Conseil d'Automne
 Tout mage résident doit consacrer une saison tous les sept ans au service de l'Alliance et à l'extraction du Vis de la faille.
 <!-- /LOCKED_BY_USER -->
+

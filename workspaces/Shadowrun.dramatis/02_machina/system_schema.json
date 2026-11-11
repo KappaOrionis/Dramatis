@@ -6,3 +6,4 @@
   "condition_monitors": ["Physical", "Stun", "Matrix", "Overflow"],
   "base_essence": "6.00"
 }
+

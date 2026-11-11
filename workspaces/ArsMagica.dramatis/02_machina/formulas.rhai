@@ -13,3 +13,4 @@ fn penetration_total(casting_score, spell_level, penetration_ability, arcane_mul
     let margin = casting_score - spell_level;
     margin + (penetration_ability * arcane_multiplier)
 }
+

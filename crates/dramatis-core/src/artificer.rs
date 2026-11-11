@@ -125,3 +125,4 @@ mod tests {
         assert_eq!(verdict.seasons_required, Some(2)); // 16/saison -> 2 saisons pour accumuler >= 20
     }
 }
+
