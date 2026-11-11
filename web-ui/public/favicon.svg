@@ -1,17 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
-  <!-- Gradient dramatique Or Ancien vers Or Lumineux -->
+  <!-- Gradient Or Ancien et Ambre Chaud -->
   <defs>
     <linearGradient id="dramatisGold" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#E5C158" />
       <stop offset="50%" stop-color="#D4AF37" />
       <stop offset="100%" stop-color="#A88926" />
     </linearGradient>
-    <linearGradient id="dramatisSteel" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2DD4BF" />
-      <stop offset="100%" stop-color="#00F0FF" />
+    <linearGradient id="dramatisWarm" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFB347" />
+      <stop offset="100%" stop-color="#FF9F1C" />
     </linearGradient>
     <radialGradient id="haloGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.3" />
+      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.25" />
       <stop offset="100%" stop-color="#0B0C10" stop-opacity="0" />
     </radialGradient>
   </defs>
@@ -19,23 +19,21 @@
   <!-- Fond Halo discret -->
   <circle cx="32" cy="32" r="30" fill="url(#haloGlow)" />
 
-  <!-- Masque de Théâtre stylisé : Les Deux Visages (Narration & Machina) -->
-  <!-- Visage Théâtre gauche (Courbe élégante) -->
+  <!-- Masque de Théâtre : Plume & Loi (Narration vs Machina) -->
   <path d="M32 6C17.64 6 6 17.64 6 32c0 10.45 6.16 19.46 15.08 23.59C22.4 54.34 23 52.75 23 51c0-4.42-3.58-8-8-8-1.66 0-3.2.51-4.48 1.38C8.36 40.59 7.2 36.44 7.2 32c0-13.7 11.1-24.8 24.8-24.8s24.8 11.1 24.8 24.8c0 4.44-1.16 8.59-3.32 12.38-1.28-.87-2.82-1.38-4.48-1.38-4.42 0-8 3.58-8 8 0 1.75.6 3.34 1.92 4.59C41.84 51.46 48 42.45 48 32c0-14.36-11.64-26-16-26z" fill="url(#dramatisGold)" />
 
   <!-- Les Yeux Tragi-Comiques / Tactiques -->
   <!-- Œil Gauche (Plume / Expression) -->
-  <path d="M21 24c0-2.76 2.24-5 5-5s5 2.24 5 5-2.24 5-5 5-5-2.24-5-5z" fill="#0B0C10" />
-  <circle cx="26" cy="24" r="2.2" fill="url(#dramatisGold)" />
+  <circle cx="26" cy="24" r="2.4" fill="#0B0C10" />
+  <circle cx="26" cy="24" r="1.2" fill="#E5C158" />
 
-  <!-- Œil Droit (Réticule Machina / Lentille géométrique déterministe) -->
-  <path d="M38 19h10v10H38z" fill="#0B0C10" />
-  <circle cx="43" cy="24" r="3.2" stroke="url(#dramatisSteel)" stroke-width="1.8" fill="none" />
-  <path d="M43 19v10M38 24h10" stroke="url(#dramatisSteel)" stroke-width="1.2" stroke-linecap="round" />
+  <!-- Œil Droit (Réticule Machina Ambre Chaud déterministe - zéro cyan) -->
+  <circle cx="43" cy="24" r="3.2" stroke="url(#dramatisWarm)" stroke-width="1.8" fill="#0B0C10" />
+  <path d="M43 19v10M38 24h10" stroke="url(#dramatisWarm)" stroke-width="1.2" stroke-linecap="round" />
 
-  <!-- L'Étoile Stellaire / Flèche Dramatique Centrale (Orgueil & Boussole) -->
-  <path d="M32 13l2.8 7.2L42 23l-7.2 2.8L32 33l-2.8-7.2L22 23l7.2-2.8z" fill="#FFF" opacity="0.9" />
+  <!-- L'Étoile Stellaire Centrale -->
+  <path d="M32 13l2.8 7.2L42 23l-7.2 2.8L32 33l-2.8-7.2L22 23l7.2-2.8z" fill="#FFF" opacity="0.95" />
 
-  <!-- Sourire & Trame Inférieure : La Scène & L'Arcade -->
+  <!-- Sourire & Trame Inférieure -->
   <path d="M22 41c3 4 7 6 10 6s7-2 10-6" stroke="url(#dramatisGold)" stroke-width="2.6" stroke-linecap="round" fill="none" />
 </svg>

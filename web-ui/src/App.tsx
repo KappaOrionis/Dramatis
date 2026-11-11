@@ -35,9 +35,9 @@ function DramatisLogo({ size = 22 }: { size?: number }) {
       {/* Œil gauche : Plume poétique */}
       <circle cx="26" cy="24" r="2.4" fill="#0B0C10" />
       <circle cx="26" cy="24" r="1.2" fill="#E5C158" />
-      {/* Œil droit : Réticule Machina déterministe */}
-      <circle cx="43" cy="24" r="3.2" stroke="#00F0FF" strokeWidth="1.8" fill="#0B0C10" />
-      <path d="M43 19v10M38 24h10" stroke="#00F0FF" strokeWidth="1.2" strokeLinecap="round" />
+      {/* Œil droit : Réticule Machina déterministe (Ambre chaud) */}
+      <circle cx="43" cy="24" r="3.2" stroke="#FF9F1C" strokeWidth="1.8" fill="#0B0C10" />
+      <path d="M43 19v10M38 24h10" stroke="#FF9F1C" strokeWidth="1.2" strokeLinecap="round" />
       {/* Étoile Stellaire centrale */}
       <path d="M32 13l2.8 7.2L42 23l-7.2 2.8L32 33l-2.8-7.2L22 23l7.2-2.8z" fill="#FFFFFF" opacity="0.95" />
       {/* Sourire théâtral */}
@@ -144,7 +144,7 @@ const HARNESS_AGENTS_SPECS: AgentDetailedSpec[] = [
     role: "Chercheur Documentaire Canonique (RAG Hybride)",
     pole: 'Régie',
     mission: "Lecture seule et interrogation stricte des sources documentaires injectées. Exécute le RAG Hybride (BM25 + LanceDB + Graphe RRF). Fournit obligatoirement la citation [Fichier, p. X]. Déclare formellement le silence documentaire si l'information est absente sans jamais rien inventer.",
-    writeScope: "Lecture seule (aucun droit d'écriture sur le carnet)",
+    writeScope: "Lecture seule (aucun droit d'écriture sur l'univers)",
     defaultModel: 'Local Strict (LanceDB + Tantivy BM25)',
     params: [
       {
@@ -361,11 +361,9 @@ export default function App() {
   const [openMenuTheater, setOpenMenuTheater] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Modale de Création d'un Carnet / Univers
+  // Modale de Création d'un Univers
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [newWorkspaceId, setNewWorkspaceId] = useState('');
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
-  const [newWorkspaceSystem, setNewWorkspaceSystem] = useState('Anastasius');
 
   // Modale de Renommage
   const [renamingTheater, setRenamingTheater] = useState<string | null>(null);
@@ -500,18 +498,21 @@ export default function App() {
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkspaceId.trim() || !newWorkspaceName.trim()) return;
+    if (!newWorkspaceName.trim()) return;
+
+    // L'identifiant technique est dérivé automatiquement sans solliciter l'utilisateur
+    const autoId = newWorkspaceName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
 
     try {
       const res = await fetch('/api/theaters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: newWorkspaceId.trim(),
+          id: autoId,
           manifest: {
             name: newWorkspaceName.trim(),
             version: '2.1.0',
-            system_id: newWorkspaceSystem,
+            system_id: 'pending_discovery',
             description: `Univers ${newWorkspaceName.trim()}`,
             privacy_mode: 'strict_local'
           }
@@ -520,10 +521,9 @@ export default function App() {
 
       if (res.ok) {
         setIsWorkspaceModalOpen(false);
-        setNewWorkspaceId('');
         setNewWorkspaceName('');
         await loadTheaters();
-        const targetId = newWorkspaceId.includes('.dramatis') ? newWorkspaceId : `${newWorkspaceId}.dramatis`;
+        const targetId = autoId.includes('.dramatis') ? autoId : `${autoId}.dramatis`;
         setSelectedTheater(targetId);
         setActiveStep('signal');
       }
@@ -554,7 +554,7 @@ export default function App() {
 
   const handleDeleteWorkspace = async (theaterId: string) => {
     setOpenMenuTheater(null);
-    if (!confirm(`Supprimer définitivement ce carnet et tous ses documents ?`)) return;
+    if (!confirm(`Supprimer définitivement cet univers et tous ses documents ?`)) return;
     try {
       const res = await fetch(`/api/theaters/${theaterId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -784,11 +784,11 @@ export default function App() {
         {/* Corps scrollable */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* SECTION NOTEBOOKS (STYLE EXACT NOTEBOOKLM) */}
+          {/* SECTION UNIVERS */}
           <div>
             {!isSidebarCollapsed && (
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-dim)', padding: '0 12px 10px 12px' }}>
-                Notebooks
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-dim)', padding: '0 12px 10px 12px', letterSpacing: '0.04em' }}>
+                Univers
               </div>
             )}
 
@@ -808,12 +808,12 @@ export default function App() {
                   marginBottom: '6px'
                 }}
               >
-                <Plus size={16} color="var(--text-muted)" />
-                <span>Nouveau notebook</span>
+                <Plus size={16} color="var(--gold)" />
+                <span>Nouvel univers</span>
               </button>
             )}
 
-            {/* Liste des Carnets */}
+            {/* Liste des Univers */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {theaters.map((th) => {
                 const isSelected = th === selectedTheater;
@@ -933,7 +933,7 @@ export default function App() {
                             textAlign: 'left'
                           }}
                         >
-                          <Edit2 size={13} color="var(--teal)" />
+                          <Edit2 size={13} color="var(--gold)" />
                           <span>Renommer</span>
                         </button>
 
@@ -1004,17 +1004,17 @@ export default function App() {
                   padding: '8px 12px',
                   borderRadius: '8px',
                   background: activeStep === 'sources' ? 'var(--sidebar-active)' : 'transparent',
-                  color: activeStep === 'sources' ? 'var(--teal)' : 'var(--text-main)',
+                  color: activeStep === 'sources' ? 'var(--gold)' : 'var(--text-main)',
                   fontSize: '0.85rem',
                   fontWeight: activeStep === 'sources' ? 600 : 400
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <FileText size={16} color="var(--teal)" />
+                  <FileText size={16} color={activeStep === 'sources' ? 'var(--gold)' : 'var(--text-muted)'} />
                   {!isSidebarCollapsed && <span>2. Sources</span>}
                 </div>
                 {!isSidebarCollapsed && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--teal)', fontWeight: 600 }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--gold)', fontWeight: 600 }}>
                     {sourcesList.length}
                   </span>
                 )}
@@ -1122,7 +1122,7 @@ export default function App() {
               onClick={() => setActiveStep('sources')}
               style={{
                 cursor: 'pointer',
-                color: activeStep === 'sources' ? 'var(--teal)' : 'var(--text-dim)',
+                color: activeStep === 'sources' ? 'var(--gold)' : 'var(--text-dim)',
                 fontWeight: activeStep === 'sources' ? 700 : 400
               }}
             >
@@ -1247,7 +1247,7 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
                     <Sparkles size={14} />
-                    <span>Synthèse Canonique du Carnet</span>
+                    <span>Synthèse Canonique de l'Univers</span>
                   </div>
                   {/* Badge Source discret avec lien */}
                   <button
@@ -1264,7 +1264,7 @@ export default function App() {
                       padding: '2px 8px',
                       borderRadius: '4px'
                     }}
-                    title="Ouvrir la source dans le carnet"
+                    title="Ouvrir la source dans l'univers"
                   >
                     <span>source: theater.yaml</span>
                     <ExternalLink size={10} />
@@ -1508,13 +1508,13 @@ export default function App() {
             <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ color: 'var(--teal)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 2</div>
+                  <div style={{ color: 'var(--gold)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 2</div>
                   <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.8rem', color: 'var(--text-main)' }}>
                     Sources Documentaires
                   </h2>
                 </div>
 
-                <div style={{ display: 'gap', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     onClick={() => setIsAddingSource(true)}
                     style={{
@@ -1523,9 +1523,9 @@ export default function App() {
                       gap: '6px',
                       padding: '8px 14px',
                       borderRadius: '8px',
-                      background: 'rgba(0, 240, 255, 0.1)',
-                      border: '1px solid rgba(0, 240, 255, 0.3)',
-                      color: 'var(--teal)',
+                      background: 'var(--gold-surface)',
+                      border: '1px solid var(--border-gold)',
+                      color: 'var(--gold)',
                       fontWeight: 600,
                       fontSize: '0.85rem'
                     }}
@@ -1542,9 +1542,9 @@ export default function App() {
                       gap: '8px',
                       padding: '8px 16px',
                       borderRadius: '8px',
-                      background: 'var(--green)',
-                      color: '#000',
-                      fontWeight: 600,
+                      background: 'var(--gold)',
+                      color: '#0B0C10',
+                      fontWeight: 700,
                       fontSize: '0.85rem'
                     }}
                   >
@@ -1560,7 +1560,7 @@ export default function App() {
                   onSubmit={handleSaveDirectSource}
                   style={{
                     background: 'var(--surface)',
-                    border: '1px solid var(--border)',
+                    border: '1px solid var(--border-gold)',
                     borderRadius: '12px',
                     padding: '20px',
                     display: 'flex',
@@ -1569,7 +1569,7 @@ export default function App() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--teal)' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
                       Ajouter une Source Documentaire Canonique
                     </span>
                     <button type="button" onClick={() => setIsAddingSource(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
@@ -1594,7 +1594,7 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                     <button
                       type="submit"
-                      style={{ background: 'var(--teal)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
+                      style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 18px', borderRadius: '6px', fontSize: '0.85rem' }}
                     >
                       Enregistrer & Indexer
                     </button>
@@ -1619,7 +1619,7 @@ export default function App() {
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <FileText size={20} color="var(--teal)" />
+                        <FileText size={20} color="var(--gold)" />
                         <div>
                           <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{src.file_name}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', display: 'flex', gap: '12px', marginTop: '2px' }}>
@@ -1654,9 +1654,9 @@ export default function App() {
                           fontSize: '0.7rem',
                           padding: '2px 8px',
                           borderRadius: '4px',
-                          background: 'rgba(0,240,255,0.1)',
-                          color: 'var(--teal)',
-                          border: '1px solid rgba(0,240,255,0.3)',
+                          background: 'var(--gold-surface)',
+                          color: 'var(--gold)',
+                          border: '1px solid var(--border-gold)',
                           textTransform: 'uppercase'
                         }}>
                           {src.file_type}
@@ -1669,29 +1669,29 @@ export default function App() {
                     padding: '48px 24px',
                     textAlign: 'center',
                     background: 'var(--surface)',
-                    border: '1px dashed var(--border)',
+                    border: '1px dashed var(--border-gold)',
                     borderRadius: '12px',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     gap: '12px'
                   }}>
-                    <FileText size={32} color="var(--text-dim)" />
+                    <FileText size={32} color="var(--gold-dim)" />
                     <div style={{ color: 'var(--text-main)', fontWeight: 600 }}>
                       Aucune source canonique n'est encore présente dans ce bac à sable.
                     </div>
                     <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', maxWidth: '420px', lineHeight: '1.5' }}>
                       L'Archiviste et les agents appliquent la règle stricte du bac à sable : ils n'inventent aucun contenu.
-                      Ajoutez votre premier document pour que le carnet s'enrichisse.
+                      Ajoutez votre premier document pour que l'univers s'enrichisse.
                     </p>
                     <button
                       onClick={() => setIsAddingSource(true)}
                       style={{
                         marginTop: '8px',
-                        background: 'var(--teal)',
-                        color: '#000',
-                        fontWeight: 600,
-                        padding: '8px 16px',
+                        background: 'var(--gold)',
+                        color: '#0B0C10',
+                        fontWeight: 700,
+                        padding: '8px 18px',
                         borderRadius: '6px',
                         fontSize: '0.85rem'
                       }}
@@ -2029,9 +2029,9 @@ export default function App() {
                           style={{
                             fontSize: '0.72rem',
                             fontFamily: 'var(--font-mono)',
-                            color: 'var(--teal)',
-                            background: 'rgba(0, 240, 255, 0.08)',
-                            border: '1px solid rgba(0, 240, 255, 0.25)',
+                            color: 'var(--gold)',
+                            background: 'var(--gold-surface)',
+                            border: '1px solid var(--border-gold)',
                             padding: '3px 8px',
                             borderRadius: '4px',
                             display: 'inline-flex',
@@ -2156,64 +2156,41 @@ export default function App() {
       </main>
 
       {/* =========================================================================
-          3. MODALE NOUVEAU NOTEBOOK (CRÉATION D'UNIVERS / WORKSPACE)
+          3. MODALE NOUVEL UNIVERS
          ========================================================================= */}
       {isWorkspaceModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '420px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Nouveau Carnet de Jeu</span>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Nouvel Univers de Jeu</span>
               <button onClick={() => setIsWorkspaceModalOpen(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
             </div>
 
-            <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '4px', display: 'block' }}>Nom de l'Univers</label>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-main)', marginBottom: '6px', display: 'block', fontWeight: 500 }}>
+                  Nom de l'Univers
+                </label>
                 <input
                   type="text"
-                  placeholder="Ex: Terres d'Ombre"
+                  placeholder="Ex: Terres d'Ombre, Cyberpunk Neo-Paris..."
                   value={newWorkspaceName}
-                  onChange={(e) => {
-                    setNewWorkspaceName(e.target.value);
-                    setNewWorkspaceId(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_'));
-                  }}
-                  style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                  onChange={(e) => setNewWorkspaceName(e.target.value)}
+                  style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px 12px', fontSize: '0.9rem' }}
+                  autoFocus
                   required
                 />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '6px', lineHeight: '1.4' }}>
+                  Le système de règles et les sources documentaires seront découverts et indexés automatiquement dès vos premiers ajouts.
+                </div>
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '4px', display: 'block' }}>Identifiant du Carnet (.dramatis)</label>
-                <input
-                  type="text"
-                  placeholder="terres_d_ombre"
-                  value={newWorkspaceId}
-                  onChange={(e) => setNewWorkspaceId(e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
-                  required
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '4px', display: 'block' }}>Système de Règles</label>
-                <select
-                  value={newWorkspaceSystem}
-                  onChange={(e) => setNewWorkspaceSystem(e.target.value)}
-                  style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem', color: 'var(--text-main)' }}
-                >
-                  <option value="Anastasius">Anastasius (2d12 Résonance Éthérique)</option>
-                  <option value="ArsMagica5e">Ars Magica 5e (1d10 Stress & Magie Hermétique)</option>
-                  <option value="Shadowrun6e">Shadowrun 6e (Dicepool d6 & Edge Tactique)</option>
-                  <option value="Generic">Générique Déterministe</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
                 <button type="button" onClick={() => setIsWorkspaceModalOpen(false)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                   Annuler
                 </button>
-                <button type="submit" style={{ background: 'var(--gold)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
-                  Créer le Carnet
+                <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 18px', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  Créer l'Univers
                 </button>
               </div>
             </form>
@@ -2222,12 +2199,12 @@ export default function App() {
       )}
 
       {/* =========================================================================
-          4. MODALE DE RENOMMAGE DU CARNET
+          4. MODALE DE RENOMMAGE DE L'UNIVERS
          ========================================================================= */}
       {renamingTheater && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
           <form onSubmit={handleRenameWorkspace} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '380px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Renommer le carnet</span>
+            <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Renommer l'Univers</span>
 
             <input
               type="text"
@@ -2241,7 +2218,7 @@ export default function App() {
               <button type="button" onClick={() => setRenamingTheater(null)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Annuler
               </button>
-              <button type="submit" style={{ background: 'var(--gold)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
+              <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
                 Enregistrer
               </button>
             </div>
@@ -2272,7 +2249,7 @@ export default function App() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)' }}>
                   <Bot size={20} />
                   <span style={{ fontWeight: 700, fontSize: '1.2rem', fontFamily: 'var(--font-title)', letterSpacing: '0.04em' }}>
-                    Configuration & Paramètres des 7 Agents du Carnet
+                    Configuration & Paramètres des 7 Agents de l'Univers
                   </span>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '4px' }}>
@@ -2284,7 +2261,7 @@ export default function App() {
 
             {/* Note doctrinale */}
             <div style={{ background: 'rgba(212, 175, 55, 0.04)', border: '1px solid rgba(212, 175, 55, 0.2)', padding: '10px 14px', borderRadius: '8px', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-              <strong style={{ color: 'var(--gold)' }}>Séparation Récit / Loi & Souveraineté :</strong> Chaque agent possède une mission et un rôle délimités. Les paramètres ci-dessous permettent d'ajuster leur comportement, seuils et tolérances sans jamais compromettre le déterminisme des règles ou l'étanchéité du carnet.
+              <strong style={{ color: 'var(--gold)' }}>Séparation Récit / Loi & Souveraineté :</strong> Chaque agent possède une mission et un rôle délimités. Les paramètres ci-dessous permettent d'ajuster leur comportement, seuils et tolérances sans jamais compromettre le déterminisme des règles ou l'étanchéité de l'univers.
             </div>
 
             {/* Liste exhaustive des 7 Agents avec Nom, Missions/Rôles et Paramètres Réglables */}
@@ -2316,9 +2293,9 @@ export default function App() {
                             fontSize: '0.68rem',
                             padding: '2px 7px',
                             borderRadius: '4px',
-                            background: agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.1)' : 'rgba(255, 159, 28, 0.1)',
-                            color: agent.pole === 'Régie' ? 'var(--teal)' : 'var(--amber)',
-                            border: `1px solid ${agent.pole === 'Régie' ? 'rgba(0, 240, 255, 0.3)' : 'rgba(255, 159, 28, 0.3)'}`,
+                            background: agent.pole === 'Régie' ? 'rgba(212, 175, 55, 0.1)' : 'rgba(255, 159, 28, 0.1)',
+                            color: agent.pole === 'Régie' ? 'var(--gold)' : 'var(--amber)',
+                            border: `1px solid ${agent.pole === 'Régie' ? 'rgba(212, 175, 55, 0.3)' : 'rgba(255, 159, 28, 0.3)'}`,
                             fontWeight: 600
                           }}>
                             Pôle {agent.pole}
@@ -2514,7 +2491,7 @@ export default function App() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
                 <span style={{ fontSize: '0.78rem', color: configSaveSuccess ? 'var(--green)' : 'var(--text-dim)' }}>
-                  {configSaveSuccess ? '✓ Configuration et paramètres enregistrés dans theater.yaml' : 'Modifications enregistrées localement par carnet.'}
+                  {configSaveSuccess ? '✓ Configuration et paramètres enregistrés dans theater.yaml' : 'Modifications enregistrées localement par univers.'}
                 </span>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
