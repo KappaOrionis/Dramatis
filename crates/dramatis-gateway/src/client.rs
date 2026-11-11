@@ -28,7 +28,7 @@ impl SouffleurClient {
     pub fn new(strict_local: bool) -> Self {
         Self {
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .unwrap_or_default(),
             strict_local,

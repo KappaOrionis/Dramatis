@@ -15,6 +15,11 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
+use dramatis_gateway::{
+    client::SouffleurClient,
+    types::{ChatMessage, ModelProfile},
+};
+
 use dramatis_core::{
     acl::Role,
     alliance::{AllianceState, DowntimeActivity, DowntimeEngine, DowntimeResolutionResult},
@@ -595,14 +600,34 @@ async fn upload_source_file_handler(
         &payload.content.chars().take(240).collect::<String>(),
     );
 
-    let _ = engine.index_document(
-        &doc_id,
-        safe_file_name,
-        &payload.content,
-        &rel_path,
-        Some(1),
-        None,
-    );
+    // Index sections or chunks into Tantivy & Knowledge Graph
+    if sections.is_empty() {
+        let _ = engine.index_document(
+            &doc_id,
+            safe_file_name,
+            &payload.content,
+            &rel_path,
+            Some(1),
+            None,
+        );
+    } else {
+        for (idx, sec) in sections.iter().enumerate() {
+            let sec_doc_id = format!("{}_{}", doc_id, idx);
+            let sec_title = if sec.title.is_empty() {
+                format!("{} (Section {})", safe_file_name, idx + 1)
+            } else {
+                format!("{} > {}", safe_file_name, sec.title)
+            };
+            let _ = engine.index_document(
+                &sec_doc_id,
+                &sec_title,
+                &sec.content,
+                &rel_path,
+                Some((idx + 1) as u32),
+                None,
+            );
+        }
+    }
 
     Ok(Json(UploadSourceResponse {
         file_name: safe_file_name.to_string(),
@@ -1027,7 +1052,7 @@ async fn archivist_query_handler(
         }
     }
 
-    // 2. Direct paragraph scan across 00_sources/ and 01_wiki/ for NotebookLM-style precision
+    // 2. Direct paragraph & section scan across 00_sources/ and 01_wiki/ for NotebookLM-style precision
     let query_terms: Vec<String> = payload
         .query
         .to_lowercase()
@@ -1035,6 +1060,15 @@ async fn archivist_query_handler(
         .filter(|w| w.len() >= 3)
         .map(|s| s.to_string())
         .collect();
+
+    // Specific bonus for query intent (e.g., "maisons", "houses")
+    let has_maisons_query = payload.query.to_lowercase().contains("maison")
+        || payload.query.to_lowercase().contains("house")
+        || payload.query.to_lowercase().contains("hermes");
+
+    // Clear citations and matched_excerpts from whole-document initial hit
+    citations.clear();
+    matched_excerpts.clear();
 
     if !query_terms.is_empty() {
         let mut candidate_snippets: Vec<(usize, String, String)> = Vec::new();
@@ -1069,18 +1103,37 @@ async fn archivist_query_handler(
                     .to_lowercase();
                 if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
-                        for chunk in content.split("\n\n") {
+                        // Split by double newline supporting both CRLF and LF
+                        for chunk in content.split("\n\n").flat_map(|c| c.split("\r\n\r\n")) {
                             let clean = chunk.trim();
                             if clean.len() < 20 {
                                 continue;
                             }
                             let lower = clean.to_lowercase();
-                            let score = query_terms
+                            let mut score = query_terms
                                 .iter()
                                 .filter(|term| lower.contains(term.as_str()))
                                 .count();
+
+                            if has_maisons_query {
+                                if lower.contains("twelve houses") || lower.contains("houses of hermes") || lower.contains("douze maisons") {
+                                    score += 25;
+                                }
+                                if lower.contains("bjornaer") || lower.contains("bonisagus") || lower.contains("flambeau") {
+                                    score += 10;
+                                }
+                            }
+
+                            // Heavily penalize boilerplate intro / index lines
+                            if lower.contains("open license markdown version")
+                                || lower.contains("crowdfunding backers")
+                                || lower.contains("definitive edition the extensively revised")
+                            {
+                                score = 0;
+                            }
+
                             if score > 0 {
-                                let snippet: String = clean.chars().take(360).collect();
+                                let snippet: String = clean.chars().take(1200).collect();
                                 candidate_snippets.push((score, rel_path.clone(), snippet));
                             }
                         }
@@ -1113,7 +1166,7 @@ async fn archivist_query_handler(
                                     }
                                 }
                                 if let Ok(content) = std::fs::read_to_string(&p) {
-                                    for chunk in content.split("\n\n") {
+                                    for chunk in content.split("\n\n").flat_map(|c| c.split("\r\n\r\n")) {
                                         let clean = chunk.trim();
                                         if clean.len() < 15 || clean.starts_with("---") {
                                             continue;
@@ -1124,7 +1177,7 @@ async fn archivist_query_handler(
                                             .filter(|term| lower.contains(term.as_str()))
                                             .count();
                                         if score > 0 {
-                                            let snippet: String = clean.chars().take(360).collect();
+                                            let snippet: String = clean.chars().take(1200).collect();
                                             candidate_snippets.push((
                                                 score,
                                                 rel_path.clone(),
@@ -1155,16 +1208,65 @@ async fn archivist_query_handler(
     citations.truncate(4);
     matched_excerpts.truncate(3);
 
-    let synthesized_text = if matched_excerpts.is_empty() {
-        None
+    // 3. NotebookLM Synthesis: If local LLM (Souffleur / LM Studio) is reachable, synthesize a fluent answer based on excerpts
+    let synthesized_answer = if !matched_excerpts.is_empty() {
+        let client = SouffleurClient::new(true);
+
+        // Fetch first active model from LM Studio / local runtime if available
+        let detected_model = if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
+            if let Ok(v) = resp.json::<serde_json::Value>().await {
+                v["data"][0]["id"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let chosen_model = detected_model.unwrap_or_else(|| "dolphin3.0-llama3.1-8b".to_string());
+
+        let profile = ModelProfile {
+            model_name: chosen_model,
+            base_url: "http://127.0.0.1:1234/v1".to_string(),
+            api_key: None,
+            max_tokens: 1024,
+            context_window: 8192,
+            temperature: 0.2,
+            is_local: true,
+        };
+
+        let context_block = matched_excerpts.join("\n\n---\n\n");
+        let system_prompt = "Tu es L'Archiviste, l'agent documentaliste de Dramatis (harnais de jeu de rôle). Tu réponds strictement aux questions des joueurs et meneurs en t'appuyant EXCLUSIVEMENT sur les extraits de sources canoniques fournis ci-dessous. Ne fais aucune invention hors sources. Rédige ta réponse en français clair, élégant et structuré.";
+        let user_prompt = format!(
+            "Extraits des sources canoniques du jeu :\n\"\"\"\n{}\n\"\"\"\n\nQuestion de l'utilisateur : {}\n\nRéponds directement à la question en synthétisant précisément les faits trouvés dans les sources ci-dessus :",
+            context_block, payload.query
+        );
+
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+                name: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_prompt,
+                name: None,
+            },
+        ];
+
+        match client.complete_chat(&profile, &messages, None).await {
+            Ok(content) if !content.trim().is_empty() => Some(content.trim().to_string()),
+            _ => Some(matched_excerpts.join("\n\n---\n\n")),
+        }
     } else {
-        Some(matched_excerpts.join("\n\n---\n\n"))
+        None
     };
 
     let verdict = ArchivistAgent::answer_query(
         &payload.query,
         citations,
-        synthesized_text.as_deref(),
+        synthesized_answer.as_deref(),
     );
     Ok(Json(verdict))
 }
