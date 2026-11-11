@@ -24,12 +24,39 @@ pub enum TheaterError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TheaterManifest {
     pub name: String,
+    #[serde(default = "default_version")]
     pub version: String,
+    #[serde(alias = "system_preset", default = "default_system_id")]
     pub system_id: String,
+    #[serde(default = "default_description")]
     pub description: String,
+    #[serde(default = "default_privacy")]
     pub privacy_mode: Option<String>,
+    #[serde(default)]
     pub chronos: ChronosConfig,
     pub default_role: Option<Role>,
+    #[serde(alias = "theater_id")]
+    pub theater_id: Option<String>,
+    #[serde(default)]
+    pub default_language: Option<String>,
+    #[serde(default)]
+    pub agent_routing: Option<std::collections::HashMap<String, String>>,
+}
+
+fn default_version() -> String {
+    "2.1.0".to_string()
+}
+
+fn default_system_id() -> String {
+    "generic".to_string()
+}
+
+fn default_description() -> String {
+    "Théâtre de jeu de rôle Dramatis".to_string()
+}
+
+fn default_privacy() -> Option<String> {
+    Some("strict_local".to_string())
 }
 
 impl Default for TheaterManifest {
@@ -39,9 +66,12 @@ impl Default for TheaterManifest {
             version: "2.1.0".to_string(),
             system_id: "generic".to_string(),
             description: "Théâtre de jeu de rôle Dramatis".to_string(),
-            privacy_mode: Some("hybrid".to_string()),
+            privacy_mode: Some("strict_local".to_string()),
             chronos: ChronosConfig::default(),
             default_role: Some(Role::Player),
+            theater_id: None,
+            default_language: Some("fr".to_string()),
+            agent_routing: None,
         }
     }
 }

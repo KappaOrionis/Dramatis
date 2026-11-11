@@ -1156,7 +1156,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/mcp/tools", get(list_mcp_tools_handler))
         // Module 1 : Theaters, Snapshots, Chronos & Exports
         .route("/api/theaters", post(create_theater_handler).get(list_theaters_handler))
-        .route("/api/theaters/{id}", get(get_theater_handler))
+        .route("/api/theaters/{id}", get(get_theater_handler).put(update_theater_handler).delete(delete_theater_handler))
         .route("/api/theaters/{id}/snapshots", get(list_snapshots_handler).post(create_snapshot_handler))
         .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
         .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
@@ -1283,4 +1283,56 @@ async fn get_theater_handler(
     let ws = TheaterWorkspace::open(theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
 
     Ok(Json(ws.manifest))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTheaterRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub system_id: Option<String>,
+    pub privacy_mode: Option<String>,
+    pub agent_routing: Option<HashMap<String, String>>,
+}
+
+async fn update_theater_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateTheaterRequest>,
+) -> Result<Json<TheaterManifest>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let mut ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    if let Some(name) = payload.name {
+        ws.manifest.name = name;
+    }
+    if let Some(desc) = payload.description {
+        ws.manifest.description = desc;
+    }
+    if let Some(sys) = payload.system_id {
+        ws.manifest.system_id = sys;
+    }
+    if let Some(priv_mode) = payload.privacy_mode {
+        ws.manifest.privacy_mode = Some(priv_mode);
+    }
+    if let Some(routing) = payload.agent_routing {
+        ws.manifest.agent_routing = Some(routing);
+    }
+
+    let yaml = serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(theater_path.join("theater.yaml"), yaml).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ws.manifest))
+}
+
+async fn delete_theater_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    if !theater_path.exists() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    std::fs::remove_dir_all(theater_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
 }

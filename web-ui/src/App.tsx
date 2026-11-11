@@ -12,7 +12,11 @@ import {
   ArrowRight,
   FileText,
   Search,
-  Compass
+  Compass,
+  Plus,
+  Trash2,
+  Upload,
+  Users
 } from 'lucide-react';
 
 interface TheaterSnapshot {
@@ -54,9 +58,25 @@ export default function App() {
   // Parcours progressif : 1 = univers (carte signalétique), 2 = sources, 3 = wiki, 4 = stage (tables de jeu)
   const [activeStep, setActiveStep] = useState<'signal' | 'sources' | 'wiki' | 'stage'>('signal');
   const [theaters, setTheaters] = useState<string[]>(['ArsMagica.dramatis', 'Anastasius.dramatis', 'Shadowrun.dramatis']);
-  const [selectedTheater, setSelectedTheater] = useState<string>('ArsMagica.dramatis');
+  const [selectedTheater, setSelectedTheater] = useState<string>('Anastasius.dramatis');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Modales de Gestion des Workspaces / Agents
+  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
+  const [newWorkspaceId, setNewWorkspaceId] = useState('');
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceSystem, setNewWorkspaceSystem] = useState('ArsMagica5e');
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  
+  // Configuration des Agents
+  const [agentConfigs, setAgentConfigs] = useState({
+    archivist_model: 'Local Strict (LanceDB + Tantivy BM25)',
+    scribe_similarity_threshold: 0.90,
+    arbiter_monte_carlo_iterations: 10000,
+    director_style: 'Nocturne Théâtral & Descriptions Sensorielles',
+    steward_advancement_auto: true
+  });
 
   // Données du Théâtre
   const [signalSheet, setSignalSheet] = useState<TheaterSignalSheet | null>(null);
@@ -66,6 +86,11 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<TheaterSnapshot[]>([]);
   const [personae, setPersonae] = useState<any[]>([]);
   const [stageLogs, setStageLogs] = useState<any[]>([]);
+
+  // Injection directe de source humaine (upload / texte)
+  const [isAddingSource, setIsAddingSource] = useState(false);
+  const [newSourceFileName, setNewSourceFileName] = useState('');
+  const [newSourceContent, setNewSourceContent] = useState('');
 
   // Agent Wiki & Archiviste
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
@@ -126,12 +151,86 @@ export default function App() {
         const notes = await wikiRes.json();
         setWikiNotes(notes);
         if (notes.length > 0) setSelectedWikiNote(notes[0]);
+        else setSelectedWikiNote(null);
       }
       if (snapRes.ok) setSnapshots(await snapRes.json());
       if (persRes.ok) setPersonae(await persRes.json());
       if (logsRes.ok) setStageLogs(await logsRes.json());
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleCreateWorkspace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWorkspaceId.trim() || !newWorkspaceName.trim()) return;
+
+    try {
+      const res = await fetch('/api/theaters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newWorkspaceId.trim(),
+          manifest: {
+            name: newWorkspaceName.trim(),
+            version: '2.1.0',
+            system_id: newWorkspaceSystem,
+            description: `Théâtre JDR ${newWorkspaceName.trim()}`,
+            privacy_mode: 'strict_local'
+          }
+        })
+      });
+
+      if (res.ok) {
+        setIsWorkspaceModalOpen(false);
+        setNewWorkspaceId('');
+        setNewWorkspaceName('');
+        await loadTheaters();
+        setSelectedTheater(newWorkspaceId.includes('.dramatis') ? newWorkspaceId : `${newWorkspaceId}.dramatis`);
+        setActiveStep('signal');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteCurrentWorkspace = async () => {
+    if (!confirm(`Supprimer définitivement le Théâtre '${selectedTheater}' et toutes ses données locales ?`)) return;
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}`, { method: 'DELETE' });
+      if (res.ok) {
+        await loadTheaters();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSaveDirectSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSourceFileName.trim() || !newSourceContent.trim()) return;
+
+    const slug = newSourceFileName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doc_id: slug,
+          title: newSourceFileName,
+          category: 'sources',
+          markdown_content: newSourceContent
+        })
+      });
+
+      if (res.ok) {
+        setIsAddingSource(false);
+        setNewSourceFileName('');
+        setNewSourceContent('');
+        loadTheaterAll(selectedTheater);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -235,7 +334,7 @@ export default function App() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
       
       {/* =========================================================================
-          1. SIDEBAR : PARCOURS PROGRESSIF GUIDÉ
+          1. SIDEBAR : UNIVERS & PARCOURS PROGRESSIF
          ========================================================================= */}
       <aside style={{
         width: isSidebarCollapsed ? '64px' : '280px',
@@ -275,11 +374,20 @@ export default function App() {
         {/* Corps de navigation - Le Parcours Progressif */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* ÉTAPE 1 : CHOIX DE L'UNIVERS */}
+          {/* GESTION & CONFIGURATION DES THÉÂTRES */}
           <div>
             {!isSidebarCollapsed && (
-              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 12px 8px 12px' }}>
-                Étape 1 • Univers de Jeu
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px 8px 12px' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  Univers & Workspaces
+                </span>
+                <button
+                  onClick={() => setIsWorkspaceModalOpen(true)}
+                  style={{ color: 'var(--gold)', display: 'flex', alignItems: 'center' }}
+                  title="Créer un nouveau Théâtre"
+                >
+                  <Plus size={14} />
+                </button>
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -325,7 +433,7 @@ export default function App() {
 
           <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
 
-          {/* ÉTAPES 2, 3, 4 : LE PARCOURS DANS L'UNIVERS SÉLECTIONNÉ */}
+          {/* ÉTAPES 1, 2, 3, 4 : LE PARCOURS DANS L'UNIVERS SÉLECTIONNÉ */}
           <div>
             {!isSidebarCollapsed && (
               <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 12px 8px 12px' }}>
@@ -433,15 +541,21 @@ export default function App() {
 
         </div>
 
-        {/* Footer Sidebar */}
+        {/* Footer Sidebar : Accès Configuration du Théâtre et des 7 Agents */}
         <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
           {!isSidebarCollapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)' }} />
-              <span>dramatisd • MJ Omni</span>
-            </div>
+            <button
+              onClick={() => setIsConfigModalOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}
+              title="Configurer le Théâtre et les 7 Agents"
+            >
+              <Settings size={14} color="var(--gold)" />
+              <span>Config Univers & Agents</span>
+            </button>
           )}
-          <Settings size={14} style={{ cursor: 'pointer' }} />
+          <button onClick={handleDeleteCurrentWorkspace} title="Supprimer ce Théâtre" style={{ color: 'var(--red)', padding: '4px' }}>
+            <Trash2 size={13} />
+          </button>
         </div>
       </aside>
 
@@ -522,7 +636,7 @@ export default function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              onClick={() => setIsConfigModalOpen(true)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -534,6 +648,24 @@ export default function App() {
                 color: 'var(--gold)',
                 fontSize: '0.8rem',
                 fontWeight: 600
+              }}
+            >
+              <Users size={13} />
+              <span>Agents & Modèles</span>
+            </button>
+
+            <button
+              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '9999px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                fontSize: '0.8rem'
               }}
             >
               <Database size={13} />
@@ -656,37 +788,107 @@ export default function App() {
           )}
 
           {/* =========================================================================
-              ÉTAPE 2 DU PARCOURS : CONSULTATION DES SOURCES (/00_sources)
+              ÉTAPE 2 DU PARCOURS : SOURCES INJECTÉES PAR L'HUMAIN (/00_sources)
              ========================================================================= */}
           {activeStep === 'sources' && (
             <div style={{ width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ color: 'var(--teal)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 2</div>
+                  <div style={{ color: 'var(--teal)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 2 • BAC À SABLE STRICT</div>
                   <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.8rem', color: 'var(--text-main)' }}>
-                    Sources Canoniques Ingérées (/00_sources)
+                    Sources Canoniques Injectées (/00_sources)
                   </h2>
                 </div>
 
-                <button
-                  onClick={() => setActiveStep('wiki')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    background: 'var(--green)',
-                    color: '#000',
-                    fontWeight: 600,
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  <span>Passer au Wiki (Étape 3)</span>
-                  <ArrowRight size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => setIsAddingSource(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(0, 240, 255, 0.1)',
+                      border: '1px solid rgba(0, 240, 255, 0.3)',
+                      color: 'var(--teal)',
+                      fontWeight: 600,
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <Upload size={14} />
+                    <span>+ Injecter une Source</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveStep('wiki')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: 'var(--green)',
+                      color: '#000',
+                      fontWeight: 600,
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <span>Passer au Wiki (Étape 3)</span>
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
 
+              {/* Formulaire d'injection de source humaine */}
+              {isAddingSource && (
+                <form
+                  onSubmit={handleSaveDirectSource}
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--teal)' }}>
+                      Ajouter une Source Canonique Humaine (L'Archiviste n'invente rien)
+                    </span>
+                    <button type="button" onClick={() => setIsAddingSource(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
+                  </div>
+
+                  <input
+                    type="text"
+                    placeholder="Nom du document (ex: Manuel_des_Joueurs_v1.md)"
+                    value={newSourceFileName}
+                    onChange={(e) => setNewSourceFileName(e.target.value)}
+                    style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                  />
+
+                  <textarea
+                    rows={6}
+                    placeholder="Collez ici le texte intégral de votre source, règle officielle ou extrait PDF..."
+                    value={newSourceContent}
+                    onChange={(e) => setNewSourceContent(e.target.value)}
+                    style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
+                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                    <button
+                      type="submit"
+                      style={{ background: 'var(--teal)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
+                    >
+                      Enregistrer dans /00_sources & Indexer
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Liste des sources existantes ou invitation explicite */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {sourcesList.length > 0 ? (
                   sourcesList.map((src, idx) => (
@@ -726,8 +928,39 @@ export default function App() {
                     </div>
                   ))
                 ) : (
-                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-dim)', border: '1px dashed var(--border)', borderRadius: '10px' }}>
-                    Aucune source brute dans /00_sources. Déposez des manuels PDF, Markdown ou Excel dans le dossier du Théâtre.
+                  <div style={{
+                    padding: '36px 24px',
+                    textAlign: 'center',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px dashed var(--border)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <FileText size={32} color="var(--teal)" style={{ opacity: 0.6 }} />
+                    <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                      Aucune source canonique n'a encore été injectée dans ce Théâtre.
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '480px', lineHeight: '1.5' }}>
+                      Conformément à la règle stricte du bac à sable, <strong>l'Archiviste n'invente rien</strong>. 
+                      Déposez vos règles, manuels PDF ou fiches de lore dans le dossier <code>/00_sources</code> ou cliquez sur le bouton ci-dessous pour en ajouter une.
+                    </p>
+                    <button
+                      onClick={() => setIsAddingSource(true)}
+                      style={{
+                        marginTop: '8px',
+                        background: 'var(--teal)',
+                        color: '#000',
+                        fontWeight: 600,
+                        padding: '8px 18px',
+                        borderRadius: '8px',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      + Ajouter ma première source
+                    </button>
                   </div>
                 )}
               </div>
@@ -770,7 +1003,7 @@ export default function App() {
               <form onSubmit={handleWikiSearch} style={{ display: 'flex', gap: '8px' }}>
                 <input
                   type="text"
-                  placeholder="Interroger l'Archiviste ou rechercher dans le Wiki (ex: Val Negra, Doissetep, Seattle)..."
+                  placeholder="Interroger l'Archiviste ou rechercher dans le Wiki..."
                   value={wikiSearchQuery}
                   onChange={(e) => setWikiSearchQuery(e.target.value)}
                   style={{
@@ -1069,7 +1302,147 @@ export default function App() {
       </main>
 
       {/* =========================================================================
-          3. TIROIR D'INSPECTION (Snapshots & Acteurs)
+          3. MODALE DE CRÉATION DE WORKSPACE (THEATER)
+         ========================================================================= */}
+      {isWorkspaceModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <form onSubmit={handleCreateWorkspace} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '420px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Nouveau Théâtre d'Univers</span>
+              <button type="button" onClick={() => setIsWorkspaceModalOpen(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Identifiant Dossier (ex: mon-univers)</label>
+              <input
+                type="text"
+                placeholder="mon-univers"
+                value={newWorkspaceId}
+                onChange={(e) => setNewWorkspaceId(e.target.value)}
+                style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                required
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Nom Public de l'Univers</label>
+              <input
+                type="text"
+                placeholder="Les Chroniques de Coruscant"
+                value={newWorkspaceName}
+                onChange={(e) => setNewWorkspaceName(e.target.value)}
+                style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                required
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Système de Règles Prédéfini</label>
+              <select
+                value={newWorkspaceSystem}
+                onChange={(e) => setNewWorkspaceSystem(e.target.value)}
+                style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+              >
+                <option value="ArsMagica5e">Ars Magica 5e</option>
+                <option value="Shadowrun6e">Shadowrun 6e</option>
+                <option value="Anastasius">Anastasius (Homebrew 2d12)</option>
+                <option value="Generic">Générique (Dés Libres)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <button type="button" onClick={() => setIsWorkspaceModalOpen(false)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Annuler
+              </button>
+              <button type="submit" style={{ background: 'var(--gold)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
+                Créer l'Univers
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================================================
+          4. MODALE DE CONFIGURATION DES 7 AGENTS DU HARNAIS
+         ========================================================================= */}
+      {isConfigModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '560px', maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Configuration du Harnais des 7 Agents</span>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Assignation des modèles locaux et seuils pour {selectedTheater}</div>
+              </div>
+              <button type="button" onClick={() => setIsConfigModalOpen(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* L'Archiviste */}
+              <div style={{ background: 'var(--surface-elevated)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold)' }}>dramatis.archivist (L'Archiviste)</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>RAG Hybride RRF • Citations obligatoires [Fichier, p. X] • Zéro hallucination</span>
+                <input
+                  type="text"
+                  value={agentConfigs.archivist_model}
+                  onChange={(e) => setAgentConfigs({ ...agentConfigs, archivist_model: e.target.value })}
+                  style={{ background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '4px', padding: '6px 8px', fontSize: '0.8rem' }}
+                />
+              </div>
+
+              {/* Le Scribe */}
+              <div style={{ background: 'var(--surface-elevated)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--green)' }}>dramatis.scribe (Le Scribe)</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-Wikilinking Aho-Corasick • Seuil de fusion d'entités anti-doublons (actuel: {agentConfigs.scribe_similarity_threshold})</span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="1.0"
+                  step="0.05"
+                  value={agentConfigs.scribe_similarity_threshold}
+                  onChange={(e) => setAgentConfigs({ ...agentConfigs, scribe_similarity_threshold: Number(e.target.value) })}
+                />
+              </div>
+
+              {/* Le Légiste */}
+              <div style={{ background: 'var(--surface-elevated)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--amber)' }}>dramatis.arbiter (Le Légiste)</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Moteur mathématique déterministe Rhai/SQLite • Échantillon Monte-Carlo par défaut</span>
+                <input
+                  type="number"
+                  value={agentConfigs.arbiter_monte_carlo_iterations}
+                  onChange={(e) => setAgentConfigs({ ...agentConfigs, arbiter_monte_carlo_iterations: Number(e.target.value) })}
+                  style={{ background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '4px', padding: '6px 8px', fontSize: '0.8rem' }}
+                />
+              </div>
+
+              {/* Le Metteur en Scène */}
+              <div style={{ background: 'var(--surface-elevated)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--purple)' }}>dramatis.director (Le Metteur en Scène)</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Traduction littéraire des verdicts mécaniques • Registre de narration</span>
+                <input
+                  type="text"
+                  value={agentConfigs.director_style}
+                  onChange={(e) => setAgentConfigs({ ...agentConfigs, director_style: e.target.value })}
+                  style={{ background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '4px', padding: '6px 8px', fontSize: '0.8rem' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(false)}
+                style={{ background: 'var(--gold)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
+              >
+                Appliquer la Configuration
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          5. TIROIR D'INSPECTION (Snapshots & Acteurs)
          ========================================================================= */}
       {isDrawerOpen && (
         <aside style={{ width: '320px', background: 'var(--sidebar-bg)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
