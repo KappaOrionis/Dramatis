@@ -409,11 +409,17 @@ export default function App() {
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
   const [viewingSource, setViewingSource] = useState<{ file_name: string; relative_path: string; content: string; file_type: string; size_bytes: number; is_binary: boolean } | null>(null);
   const [, setIsLoadingSourceContent] = useState(false);
+  // Recherche & Encyclopédie structurée
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
   const [wikiSearchResults, setWikiSearchResults] = useState<any[]>([]);
   const [archivistVerdict, setArchivistVerdict] = useState<ArchivistVerdictResponse | null>(null);
+  const [isCreatingWikiNote, setIsCreatingWikiNote] = useState(false);
   const [newWikiTitle, setNewWikiTitle] = useState('');
+  const [newWikiCategory, setNewWikiCategory] = useState('lieux');
   const [newWikiBody, setNewWikiBody] = useState('');
+  const [wikiCategoryFilter, setWikiCategoryFilter] = useState<string>('all');
+  const [isEditingWikiNote, setIsEditingWikiNote] = useState(false);
+  const [editedWikiContent, setEditedWikiContent] = useState('');
   const [ingestFeedback, setIngestFeedback] = useState<string | null>(null);
 
   // Table de jeu
@@ -930,6 +936,78 @@ export default function App() {
       return signalSheet.name;
     }
     return th.replace('.dramatis', '');
+  };
+
+  // Analyse et structuration d'une fiche Wiki (extraction frontmatter YAML, blocs secrets MJ, titre humain)
+  const parseWikiMarkdown = (note: WikiNoteEntry) => {
+    let raw = note.content || '';
+    let title = note.slug.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+    let category = note.category;
+    let tags: string[] = [];
+    let secrets: string[] = [];
+
+    // 1. Extraire le frontmatter YAML (--- ... ---)
+    const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+    const fmMatch = raw.match(fmRegex);
+    if (fmMatch) {
+      const fmContent = fmMatch[1];
+      raw = raw.slice(fmMatch[0].length);
+
+      const titleMatch = fmContent.match(/title:\s*["']?([^"'\r\n]+)["']?/i);
+      if (titleMatch) title = titleMatch[1].trim();
+
+      const catMatch = fmContent.match(/category:\s*["']?([^"'\r\n]+)["']?/i);
+      if (catMatch) category = catMatch[1].trim();
+
+      const tagsMatch = fmContent.match(/tags:\s*\[([^\]]*)\]/i);
+      if (tagsMatch) {
+        tags = tagsMatch[1]
+          .split(',')
+          .map((t) => t.trim().replace(/^["']|["']$/g, ''))
+          .filter(Boolean);
+      }
+    }
+
+    // 2. Extraire un éventuel titre H1 en tête de corps s'il duplique le titre
+    const h1Match = raw.match(/^\s*#\s+([^\r\n]+)\r?\n+/);
+    if (h1Match) {
+      if (!fmMatch) {
+        title = h1Match[1].trim();
+      }
+      raw = raw.slice(h1Match[0].length);
+    }
+
+    // 3. Extraire les blocs :::secret[gm_only] ... :::
+    const secretRegex = /:::secret(?:\[[^\]]*\])?\r?\n([\s\S]*?)(?:\r?\n:::|$)/g;
+    let bodyWithoutSecrets = raw.replace(secretRegex, (_, secretBody) => {
+      secrets.push(secretBody.trim());
+      return '';
+    });
+
+    return {
+      title,
+      category,
+      tags,
+      body: bodyWithoutSecrets.trim(),
+      secrets
+    };
+  };
+
+  const WIKI_CATEGORIES = [
+    { id: 'all', label: 'Toutes les fiches' },
+    { id: 'lieux', label: 'Lieux & Sanctuaires' },
+    { id: 'pnj', label: 'Personnages & Figures' },
+    { id: 'factions', label: 'Factions & Alliances' },
+    { id: 'concepts', label: 'Règles & Concepts' },
+    { id: 'histoire', label: 'Histoire & Chroniques' },
+    { id: 'objets', label: 'Artefacts & Objets' },
+    { id: 'bestiaire', label: 'Bestiaire & Créatures' },
+    { id: 'lore', label: 'Notes générales' }
+  ];
+
+  const getCategoryLabel = (catId: string) => {
+    const found = WIKI_CATEGORIES.find((c) => c.id === catId.toLowerCase());
+    return found ? found.label : catId.toUpperCase();
   };
 
   // Naviguer et ouvrir directement la visionneuse pour une source ou note
@@ -2130,78 +2208,152 @@ export default function App() {
             </div>
           )}
 
-          {/* ÉTAPE 3 : ENCYCLOPÉDIE & NOTES (AVEC TRACE DU CHEMIN SOURCE POUR CHAQUE FICHE) */}
+          {/* ÉTAPE 3 : ENCYCLOPÉDIE & NOTES (CODEX STRUCTURÉ PAR CATÉGORIES & SANS FRONTMATTER BRUT) */}
           {activeStep === 'wiki' && (
             <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              
+              {/* En-tête de l'Encyclopédie */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
-                  <div style={{ color: 'var(--green)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 3</div>
-                  <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.8rem', color: 'var(--text-main)' }}>
+                  <div style={{ color: 'var(--gold)', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    ÉTAPE 3 • CODEX & LORE CANONIQUE
+                  </div>
+                  <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.9rem', color: 'var(--text-main)', marginTop: '2px' }}>
                     Encyclopédie & Notes de Campagne
                   </h2>
                 </div>
 
-                <button
-                  onClick={() => setActiveStep('stage')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    background: 'var(--amber)',
-                    color: '#000',
-                    fontWeight: 600,
-                    fontSize: '0.85rem'
-                  }}
-                >
-                  <span>Rejoindre la Table de Jeu (Étape 4)</span>
-                  <ArrowRight size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={() => setIsCreatingWikiNote(!isCreatingWikiNote)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: isCreatingWikiNote ? 'var(--gold-surface)' : 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      color: 'var(--gold)',
+                      fontWeight: 600,
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <Plus size={15} />
+                    <span>{isCreatingWikiNote ? 'Fermer l’éditeur' : 'Nouvelle Fiche'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveStep('stage')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 18px',
+                      borderRadius: '8px',
+                      background: 'var(--gold)',
+                      color: '#0B0C10',
+                      fontWeight: 700,
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <span>Rejoindre la Table de Jeu (Étape 4)</span>
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
 
-              {/* Recherche dans l'encyclopédie */}
-              <form onSubmit={handleWikiSearch} style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="Rechercher une notion, un lieu ou un personnage dans les notes..."
-                  value={wikiSearchQuery}
-                  onChange={(e) => setWikiSearchQuery(e.target.value)}
-                  style={{
-                    flex: 1,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: '10px 14px',
-                    fontSize: '0.9rem'
-                  }}
-                />
-                <button
-                  type="submit"
-                  style={{
-                    background: 'var(--green)',
-                    color: '#000',
-                    fontWeight: 600,
-                    padding: '0 20px',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Search size={16} />
-                  <span>Rechercher</span>
-                </button>
-              </form>
+              {/* Barre de recherche et filtres par catégories */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <form onSubmit={handleWikiSearch} style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text"
+                    placeholder="Rechercher une notion, un lieu, une faction ou un personnage dans l'encyclopédie..."
+                    value={wikiSearchQuery}
+                    onChange={(e) => setWikiSearchQuery(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '10px 14px',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      color: 'var(--gold)',
+                      fontWeight: 600,
+                      padding: '0 20px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Search size={15} />
+                    <span>Rechercher</span>
+                  </button>
+                </form>
 
-              {/* Résultats avec liens vers la source */}
+                {/* Onglets de catégories du Wiki */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {WIKI_CATEGORIES.map((cat) => {
+                    const count = cat.id === 'all'
+                      ? wikiNotes.length
+                      : wikiNotes.filter((n) => n.category.toLowerCase() === cat.id).length;
+
+                    if (cat.id !== 'all' && count === 0 && wikiCategoryFilter !== cat.id) return null;
+
+                    const isActive = wikiCategoryFilter === cat.id;
+                    return (
+                      <button
+                        key={cat.id}
+                        onClick={() => setWikiCategoryFilter(cat.id)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          fontSize: '0.78rem',
+                          fontWeight: isActive ? 700 : 500,
+                          background: isActive ? 'var(--gold)' : 'var(--surface)',
+                          color: isActive ? '#0B0C10' : 'var(--text-muted)',
+                          border: '1px solid',
+                          borderColor: isActive ? 'var(--gold)' : 'var(--border)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <span>{cat.label}</span>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: isActive ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.05)',
+                          color: isActive ? '#0B0C10' : 'var(--text-dim)'
+                        }}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Résultats de recherche s'il y en a */}
               {wikiSearchResults.length > 0 && (
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--green)' }}>
-                    {wikiSearchResults.length} extrait(s) trouvé(s) :
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-gold)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--gold)' }}>
+                      {wikiSearchResults.length} extrait(s) trouvé(s) dans le corpus :
+                    </span>
+                    <button onClick={() => setWikiSearchResults([])} style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Fermer ✕</button>
                   </div>
                   {wikiSearchResults.map((r, idx) => (
-                    <div key={idx} style={{ padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div key={idx} style={{ padding: '10px 14px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 600, color: 'var(--gold)' }}>{r.title}</span>
                         {r.source_path && (
@@ -2229,144 +2381,410 @@ export default function App() {
                 </div>
               )}
 
-              {/* Formulaire de rédaction */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold)' }}>
-                  + Rédiger une nouvelle fiche
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="text"
-                    placeholder="Titre de la fiche (ex: La Citadelle d'Airain)"
-                    value={newWikiTitle}
-                    onChange={(e) => setNewWikiTitle(e.target.value)}
-                    style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
-                  />
-                  <button
-                    onClick={async () => {
-                      if (!newWikiTitle.trim() || !newWikiBody.trim()) return;
-                      const slug = newWikiTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-                      const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          doc_id: slug,
-                          title: newWikiTitle.trim(),
-                          category: 'lore',
-                          markdown_content: newWikiBody
-                        })
-                      });
-                      if (res.ok) {
-                        setNewWikiTitle('');
-                        setNewWikiBody('');
-                        setIngestFeedback('Fiche enregistrée avec succès dans le bac à sable !');
-                        setTimeout(() => setIngestFeedback(null), 3000);
-                        loadTheaterAll(selectedTheater);
-                      }
-                    }}
-                    style={{ background: 'var(--green)', color: '#000', fontWeight: 600, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}
-                  >
-                    Enregistrer la Fiche
-                  </button>
-                </div>
+              {/* Tiroir repliable de création de nouvelle fiche */}
+              {isCreatingWikiNote && (
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border-gold)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--gold)' }}>
+                      Créer une nouvelle fiche d'Encyclopédie
+                    </span>
+                    <button onClick={() => setIsCreatingWikiNote(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
+                  </div>
 
-                <textarea
-                  rows={4}
-                  placeholder="Contenu de la note... Vous pouvez utiliser [[WikiLinks]] pour lier automatiquement d'autres entités."
-                  value={newWikiBody}
-                  onChange={(e) => setNewWikiBody(e.target.value)}
-                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
-                />
-                {ingestFeedback && <div style={{ fontSize: '0.75rem', color: 'var(--green)' }}>{ingestFeedback}</div>}
-              </div>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      placeholder="Titre de la fiche (ex: Alliance de Val Negra)"
+                      value={newWikiTitle}
+                      onChange={(e) => setNewWikiTitle(e.target.value)}
+                      style={{ flex: 2, minWidth: '240px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                    />
 
-              {/* Fiches de lore existantes avec chemin source relatif cliquable */}
-              <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '16px' }}>
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '420px', overflowY: 'auto' }}>
-                  {wikiNotes.map((note) => (
-                    <button
-                      key={note.slug}
-                      onClick={() => setSelectedWikiNote(note)}
-                      style={{
-                        textAlign: 'left',
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        background: selectedWikiNote?.slug === note.slug ? 'var(--surface-elevated)' : 'transparent',
-                        color: selectedWikiNote?.slug === note.slug ? 'var(--green)' : 'var(--text-muted)',
-                        border: selectedWikiNote?.slug === note.slug ? '1px solid var(--border)' : '1px solid transparent',
-                        fontSize: '0.85rem'
-                      }}
+                    <select
+                      value={newWikiCategory}
+                      onChange={(e) => setNewWikiCategory(e.target.value)}
+                      style={{ flex: 1, minWidth: '180px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem', color: 'var(--text-main)' }}
                     >
-                      <div style={{ fontWeight: 600 }}>{note.slug}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>{note.category}</div>
+                      <option value="lieux">Lieux & Sanctuaires</option>
+                      <option value="pnj">Personnages & Figures</option>
+                      <option value="factions">Factions & Alliances</option>
+                      <option value="concepts">Règles & Concepts</option>
+                      <option value="histoire">Histoire & Chroniques</option>
+                      <option value="objets">Artefacts & Objets</option>
+                      <option value="bestiaire">Bestiaire & Créatures</option>
+                      <option value="lore">Notes générales</option>
+                    </select>
+
+                    <button
+                      onClick={async () => {
+                        if (!newWikiTitle.trim() || !newWikiBody.trim()) return;
+                        const slug = newWikiTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                        const formattedMarkdown = `---\ntitle: ${newWikiTitle.trim()}\ncategory: ${newWikiCategory}\n---\n\n# ${newWikiTitle.trim()}\n\n${newWikiBody.trim()}`;
+
+                        const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            doc_id: slug,
+                            title: newWikiTitle.trim(),
+                            category: newWikiCategory,
+                            markdown_content: formattedMarkdown
+                          })
+                        });
+                        if (res.ok) {
+                          setNewWikiTitle('');
+                          setNewWikiBody('');
+                          setIsCreatingWikiNote(false);
+                          setIngestFeedback('Fiche enregistrée et indexée dans le Codex !');
+                          setTimeout(() => setIngestFeedback(null), 3000);
+                          loadTheaterAll(selectedTheater);
+                        }
+                      }}
+                      style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 18px', borderRadius: '6px', fontSize: '0.85rem' }}
+                    >
+                      Enregistrer la Fiche
                     </button>
-                  ))}
+                  </div>
+
+                  <textarea
+                    rows={5}
+                    placeholder="Rédigez le contenu de la fiche... Utilisez [[NomEntité]] pour créer des liens croisés ou :::secret[gm_only] pour masquer des notes réservées au Metteur en Scène."
+                    value={newWikiBody}
+                    onChange={(e) => setNewWikiBody(e.target.value)}
+                    style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px 12px', fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
+                  />
+                </div>
+              )}
+
+              {ingestFeedback && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--gold-surface)', border: '1px solid var(--border-gold)', color: 'var(--gold)', fontSize: '0.82rem' }}>
+                  {ingestFeedback}
+                </div>
+              )}
+
+              {/* Disposition 2 colonnes : Index des fiches à gauche (320px) + Fiche structurée à droite */}
+              <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', alignItems: 'start' }}>
+                
+                {/* Colonne gauche : Explorateur de fiches */}
+                <div style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '12px',
+                  padding: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  maxHeight: '70vh',
+                  overflowY: 'auto'
+                }}>
+                  <div style={{ padding: '4px 8px 8px', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Index des Entrées ({wikiNotes.filter(n => wikiCategoryFilter === 'all' || n.category.toLowerCase() === wikiCategoryFilter).length})
+                  </div>
+
+                  {wikiNotes
+                    .filter((n) => wikiCategoryFilter === 'all' || n.category.toLowerCase() === wikiCategoryFilter)
+                    .map((note) => {
+                      const parsed = parseWikiMarkdown(note);
+                      const isSelected = selectedWikiNote?.slug === note.slug && selectedWikiNote?.category === note.category;
+                      return (
+                        <button
+                          key={`${note.category}-${note.slug}`}
+                          onClick={() => {
+                            setSelectedWikiNote(note);
+                            setIsEditingWikiNote(false);
+                          }}
+                          style={{
+                            textAlign: 'left',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: isSelected ? 'var(--gold-surface)' : 'transparent',
+                            border: isSelected ? '1px solid var(--border-gold)' : '1px solid transparent',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: isSelected ? 'var(--gold)' : 'var(--text-main)' }}>
+                            {parsed.title}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                            <span style={{
+                              fontSize: '0.68rem',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(255,255,255,0.04)',
+                              color: 'var(--text-dim)',
+                              textTransform: 'uppercase'
+                            }}>
+                              {getCategoryLabel(parsed.category)}
+                            </span>
+                            {parsed.secrets.length > 0 && (
+                              <span style={{ fontSize: '0.65rem', color: 'var(--amber)' }} title="Contient des secrets réservés au MJ">
+                                🔒 Secret MJ
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                  {wikiNotes.length === 0 && (
+                    <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
+                      Aucune fiche dans l'encyclopédie. Cliquez sur « Nouvelle Fiche » pour documenter votre univers.
+                    </div>
+                  )}
                 </div>
 
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-                  {selectedWikiNote ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px' }}>
-                        <span style={{ fontWeight: 600, color: 'var(--gold)', fontSize: '0.95rem' }}>
-                          {selectedWikiNote.slug}
-                        </span>
-                        {/* Affichage discret de la source et bouton de suppression */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <button
-                            onClick={() => handleNavigateToSource(selectedWikiNote.relative_path)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontSize: '0.72rem',
-                              fontFamily: 'var(--font-mono)',
-                              color: 'var(--text-dim)',
-                              background: 'rgba(255, 255, 255, 0.03)',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid var(--border-subtle)'
-                            }}
-                            title="Ouvrir dans la visionneuse"
-                          >
-                            <span>source: {selectedWikiNote.relative_path}</span>
-                            <ExternalLink size={9} />
-                          </button>
+                {/* Colonne droite : Lecteur & Éditeur de Fiche Structurée */}
+                <div style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '12px',
+                  padding: '28px 32px',
+                  minHeight: '460px'
+                }}>
+                  {selectedWikiNote ? (() => {
+                    const parsed = parseWikiMarkdown(selectedWikiNote);
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        
+                        {/* En-tête de la fiche */}
+                        <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
+                            <div>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                                color: 'var(--gold)',
+                                background: 'var(--gold-surface)',
+                                border: '1px solid var(--border-gold)',
+                                padding: '2px 8px',
+                                borderRadius: '4px'
+                              }}>
+                                {getCategoryLabel(parsed.category)}
+                              </span>
+                              <h3 style={{ fontFamily: 'var(--font-title)', fontSize: '1.75rem', color: 'var(--text-main)', marginTop: '8px' }}>
+                                {parsed.title}
+                              </h3>
+                            </div>
 
-                          <button
-                            onClick={async () => {
-                              if (!confirm(`Supprimer la note "${selectedWikiNote.slug}" ?`)) return;
-                              const res = await fetch(`/api/theaters/${selectedTheater}/wiki/${encodeURIComponent(selectedWikiNote.category)}/${encodeURIComponent(selectedWikiNote.slug)}`, {
-                                method: 'DELETE'
-                              });
-                              if (res.ok) {
-                                setSelectedWikiNote(null);
-                                loadTheaterAll(selectedTheater);
-                              }
-                            }}
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '4px',
-                              background: 'rgba(255, 255, 255, 0.03)',
-                              border: '1px solid var(--border-subtle)',
-                              color: 'var(--text-dim)',
-                              fontSize: '0.72rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                            title="Supprimer cette note"
-                          >
-                            <Trash2 size={12} />
-                            <span>Supprimer</span>
-                          </button>
+                            {/* Actions de la fiche : Source, Modifier, Supprimer */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                onClick={() => handleNavigateToSource(selectedWikiNote.relative_path)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  fontSize: '0.74rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: 'var(--text-dim)',
+                                  background: 'rgba(255, 255, 255, 0.03)',
+                                  padding: '5px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-subtle)'
+                                }}
+                                title="Consulter le fichier Markdown brut dans la visionneuse"
+                              >
+                                <span>{selectedWikiNote.relative_path}</span>
+                                <ExternalLink size={10} />
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  if (!isEditingWikiNote) {
+                                    setEditedWikiContent(selectedWikiNote.content);
+                                    setIsEditingWikiNote(true);
+                                  } else {
+                                    setIsEditingWikiNote(false);
+                                  }
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: '6px',
+                                  background: isEditingWikiNote ? 'var(--gold)' : 'var(--surface-elevated)',
+                                  border: '1px solid var(--border)',
+                                  color: isEditingWikiNote ? '#0B0C10' : 'var(--text-main)',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '5px'
+                                }}
+                              >
+                                <Edit2 size={12} />
+                                <span>{isEditingWikiNote ? 'Annuler' : 'Modifier'}</span>
+                              </button>
+
+                              <button
+                                onClick={async () => {
+                                  if (!confirm(`Supprimer définitivement la fiche "${parsed.title}" ?`)) return;
+                                  const res = await fetch(`/api/theaters/${selectedTheater}/wiki/${encodeURIComponent(selectedWikiNote.category)}/${encodeURIComponent(selectedWikiNote.slug)}`, {
+                                    method: 'DELETE'
+                                  });
+                                  if (res.ok) {
+                                    setSelectedWikiNote(null);
+                                    loadTheaterAll(selectedTheater);
+                                  }
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(255, 255, 255, 0.03)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-dim)',
+                                  fontSize: '0.75rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '5px'
+                                }}
+                                title="Supprimer cette fiche"
+                              >
+                                <Trash2 size={12} />
+                                <span>Supprimer</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Tags extraits du frontmatter YAML */}
+                          {parsed.tags.length > 0 && (
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                              {parsed.tags.map((tag, i) => (
+                                <span
+                                  key={i}
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: '2px 8px',
+                                    borderRadius: '999px',
+                                    background: 'rgba(255, 255, 255, 0.04)',
+                                    border: '1px solid var(--border-subtle)',
+                                    color: 'var(--text-muted)'
+                                  }}
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
+
+                        {/* Mode Édition ou Mode Lecture Structurée */}
+                        {isEditingWikiNote ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <textarea
+                              rows={14}
+                              value={editedWikiContent}
+                              onChange={(e) => setEditedWikiContent(e.target.value)}
+                              style={{
+                                width: '100%',
+                                background: 'var(--surface-elevated)',
+                                border: '1px solid var(--border-gold)',
+                                borderRadius: '8px',
+                                padding: '14px',
+                                fontSize: '0.86rem',
+                                fontFamily: 'var(--font-mono)',
+                                lineHeight: '1.6',
+                                color: 'var(--text-main)'
+                              }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                              <button
+                                onClick={async () => {
+                                  const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      doc_id: selectedWikiNote.slug,
+                                      title: parsed.title,
+                                      category: selectedWikiNote.category,
+                                      markdown_content: editedWikiContent
+                                    })
+                                  });
+                                  if (res.ok) {
+                                    setIsEditingWikiNote(false);
+                                    await loadTheaterAll(selectedTheater);
+                                  }
+                                }}
+                                style={{
+                                  background: 'var(--gold)',
+                                  color: '#0B0C10',
+                                  fontWeight: 700,
+                                  padding: '8px 20px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.85rem'
+                                }}
+                              >
+                                Enregistrer les modifications
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Corps principal du Lore */}
+                            <div style={{
+                              fontFamily: 'var(--font-serif)',
+                              fontSize: '1.05rem',
+                              lineHeight: '1.75',
+                              color: 'var(--text-main)',
+                              whiteSpace: 'pre-line'
+                            }}>
+                              {parsed.body || 'Aucun contenu descriptif.'}
+                            </div>
+
+                            {/* Blocs Secrets MJ mis en valeur dans un encadré dédié */}
+                            {parsed.secrets.length > 0 && (
+                              <div style={{
+                                marginTop: '8px',
+                                background: 'rgba(255, 159, 28, 0.06)',
+                                border: '1px solid rgba(255, 159, 28, 0.3)',
+                                borderRadius: '10px',
+                                padding: '16px 20px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px'
+                              }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.06em',
+                                  color: 'var(--amber)'
+                                }}>
+                                  <span>🔒 Information Confidentielle — Réservée au Metteur en Scène (gm_only)</span>
+                                  <span>Brouillard de Guerre Actif</span>
+                                </div>
+                                {parsed.secrets.map((sec, idx) => (
+                                  <div
+                                    key={idx}
+                                    style={{
+                                      fontFamily: 'var(--font-serif)',
+                                      fontSize: '0.96rem',
+                                      lineHeight: '1.65',
+                                      color: 'var(--text-main)',
+                                      whiteSpace: 'pre-line'
+                                    }}
+                                  >
+                                    {sec}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                       </div>
-                      <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-serif)', fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
-                        {selectedWikiNote.content}
-                      </pre>
+                    );
+                  })() : (
+                    <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: '60px 20px' }}>
+                      Sélectionnez une fiche dans l'index à gauche pour consulter son contenu.
                     </div>
-                  ) : (
-                    <div style={{ color: 'var(--text-dim)', textAlign: 'center', padding: '32px' }}>Sélectionnez une fiche pour la lire.</div>
                   )}
                 </div>
               </div>
