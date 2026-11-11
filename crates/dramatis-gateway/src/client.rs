@@ -28,7 +28,7 @@ impl SouffleurClient {
     pub fn new(strict_local: bool) -> Self {
         Self {
             client: Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
+                .timeout(std::time::Duration::from_secs(120))
                 .build()
                 .unwrap_or_default(),
             strict_local,
@@ -82,10 +82,20 @@ impl SouffleurClient {
         }
 
         let res_json: Value = res.json().await?;
-        let content = res_json["choices"][0]["message"]["content"]
+        let message_obj = &res_json["choices"][0]["message"];
+        let mut content = message_obj["content"]
             .as_str()
             .unwrap_or("")
             .to_string();
+
+        // If content is empty (e.g. thinking models like Gemma 4 QAT where reasoning_content has the text)
+        if content.trim().is_empty() {
+            if let Some(reasoning) = message_obj["reasoning_content"].as_str() {
+                if !reasoning.trim().is_empty() {
+                    content = reasoning.to_string();
+                }
+            }
+        }
 
         if let Some(schema) = &json_schema {
             Self::validate_json_against_schema(&content, schema)?;

@@ -461,6 +461,7 @@ pub struct HybridSearchRequest {
 pub struct ArchivistQueryRequest {
     pub query: String,
     pub selected_sources: Option<Vec<String>>,
+    pub preferred_model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -1061,10 +1062,15 @@ async fn archivist_query_handler(
         .map(|s| s.to_string())
         .collect();
 
-    // Specific bonus for query intent (e.g., "maisons", "houses")
+    // Specific bonus for query intent (e.g., "maisons", "houses", combat)
     let has_maisons_query = payload.query.to_lowercase().contains("maison")
         || payload.query.to_lowercase().contains("house")
         || payload.query.to_lowercase().contains("hermes");
+    let has_combat_query = payload.query.to_lowercase().contains("combat")
+        || payload.query.to_lowercase().contains("guerre")
+        || payload.query.to_lowercase().contains("bataille")
+        || payload.query.to_lowercase().contains("martial")
+        || payload.query.to_lowercase().contains("combattant");
 
     // Clear citations and matched_excerpts from whole-document initial hit
     citations.clear();
@@ -1122,9 +1128,21 @@ async fn archivist_query_handler(
 
                                         if has_maisons_query {
                                             if lower.contains("twelve houses") || lower.contains("houses of hermes") || lower.contains("douze maisons") {
-                                                score += 25;
+                                                score += 15;
                                             }
                                             if lower.contains("bjornaer") || lower.contains("bonisagus") || lower.contains("flambeau") {
+                                                score += 10;
+                                            }
+                                        }
+
+                                        if has_combat_query {
+                                            if lower.contains("flambeau") && (lower.contains("combat") || lower.contains("martial") || lower.contains("fire") || lower.contains("knights")) {
+                                                score += 40;
+                                            }
+                                            if lower.contains("tremere") && (lower.contains("combat magic") || lower.contains("field commander") || lower.contains("certamen")) {
+                                                score += 30;
+                                            }
+                                            if lower.contains("combat") || lower.contains("martial") {
                                                 score += 10;
                                             }
                                         }
@@ -1252,38 +1270,82 @@ async fn archivist_query_handler(
     matched_excerpts.truncate(3);
 
     // 3. NotebookLM Synthesis: If local LLM (Souffleur / LM Studio) is reachable, synthesize a fluent answer based on excerpts
+    let mut model_used: Option<String> = None;
+    let mut prompt_used: Option<String> = None;
+    let mut tools_used: Option<Vec<String>> = Some(vec![
+        "Tantivy BM25 Full-text Search".to_string(),
+        "Knowledge Graph RRF".to_string(),
+        "Section Scanner with Line-accurate Indexing".to_string(),
+    ]);
+
     let synthesized_answer = if !matched_excerpts.is_empty() {
         let client = SouffleurClient::new(true);
 
-        // Fetch first active model from LM Studio / local runtime if available
-        let detected_model = if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
+        // Fetch active/available models from LM Studio
+        let available_models: Vec<String> = if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
             if let Ok(v) = resp.json::<serde_json::Value>().await {
-                v["data"][0]["id"].as_str().map(|s| s.to_string())
+                v["data"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default()
             } else {
-                None
+                Vec::new()
             }
         } else {
-            None
+            Vec::new()
         };
 
-        let chosen_model = detected_model.unwrap_or_else(|| "dolphin3.0-llama3.1-8b".to_string());
+        // Determine chosen model: payload preference > active non-embedding model > fallback
+        let chosen_model = if let Some(pref) = &payload.preferred_model {
+            if !pref.trim().is_empty() {
+                pref.clone()
+            } else {
+                available_models
+                    .iter()
+                    .find(|m| !m.contains("embed"))
+                    .cloned()
+                    .unwrap_or_else(|| "mistral-small-3.2-24b-instruct-2506".to_string())
+            }
+        } else {
+            available_models
+                .iter()
+                .find(|m| !m.contains("embed"))
+                .cloned()
+                .unwrap_or_else(|| "mistral-small-3.2-24b-instruct-2506".to_string())
+        };
+
+        model_used = Some(chosen_model.clone());
 
         let profile = ModelProfile {
             model_name: chosen_model,
             base_url: "http://127.0.0.1:1234/v1".to_string(),
             api_key: None,
-            max_tokens: 1024,
-            context_window: 8192,
+            max_tokens: 380,
+            context_window: 4096,
             temperature: 0.2,
             is_local: true,
         };
 
         let context_block = matched_excerpts.join("\n\n---\n\n");
-        let system_prompt = "Tu es L'Archiviste, l'agent documentaliste de Dramatis (harnais de jeu de rôle). Tu réponds strictement aux questions des joueurs et meneurs en t'appuyant EXCLUSIVEMENT sur les extraits de sources canoniques fournis ci-dessous. Ne fais aucune invention hors sources. Rédige ta réponse en français clair, élégant et structuré.";
+        let system_prompt = "Tu es L'Archiviste, l'agent documentaliste et archiviste canonique de Dramatis (harnais de jeu de rôle). Tu réponds OBLIGATOIREMENT et STRICTEMENT dans la langue de la question posée par l'utilisateur (si la question est en français, rédige ta réponse EXCLUSIVEMENT en français). Appuie-toi sur les extraits des sources fournis ci-dessous pour formuler une réponse claire, directe et sourcée. Ne reproduis pas passivement le texte en anglais : analyse, synthétise et réponds directement en français.";
         let user_prompt = format!(
-            "Extraits des sources canoniques du jeu :\n\"\"\"\n{}\n\"\"\"\n\nQuestion de l'utilisateur : {}\n\nRéponds directement à la question en synthétisant précisément les faits trouvés dans les sources ci-dessus :",
+            "Extraits des sources canoniques du jeu :\n\"\"\"\n{}\n\"\"\"\n\nQuestion de l'utilisateur : {}\n\nRéponds précisément et directement à la question en français en t'appuyant sur ces sources :",
             context_block, payload.query
         );
+
+        let full_prompt_preview = format!(
+            "[SYSTEM PROMPT]\n{}\n\n[USER PROMPT]\n{}",
+            system_prompt, user_prompt
+        );
+        prompt_used = Some(full_prompt_preview);
+
+        if let Some(tools) = &mut tools_used {
+            tools.push("LLM Synthesizer (Local OpenAI-compatible API)".to_string());
+        }
 
         let messages = vec![
             ChatMessage {
@@ -1306,11 +1368,15 @@ async fn archivist_query_handler(
         None
     };
 
-    let verdict = ArchivistAgent::answer_query(
+    let mut verdict = ArchivistAgent::answer_query(
         &payload.query,
         citations,
         synthesized_answer.as_deref(),
     );
+    verdict.model_used = model_used;
+    verdict.prompt_used = prompt_used;
+    verdict.tools_used = tools_used;
+
     Ok(Json(verdict))
 }
 
@@ -1684,6 +1750,26 @@ async fn rewind_stage_handler(
     Ok(Json(remaining))
 }
 
+async fn list_models_handler() -> Json<Vec<String>> {
+    let mut models = Vec::new();
+    if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
+        if let Ok(v) = resp.json::<serde_json::Value>().await {
+            if let Some(arr) = v["data"].as_array() {
+                for m in arr {
+                    if let Some(id) = m["id"].as_str() {
+                        models.push(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    if models.is_empty() {
+        models.push("mistral-small-3.2-24b-instruct-2506".to_string());
+        models.push("google/gemma-4-12b-qat".to_string());
+    }
+    Json(models)
+}
+
 async fn list_mcp_tools_handler() -> Json<Vec<McpToolSpec>> {
     Json(McpRegistry::list_all_tools())
 }
@@ -1728,6 +1814,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/wiki/{category}/{slug}", axum::routing::delete(delete_wiki_note_handler))
         .route("/api/theaters/{id}/rag/search", post(search_hybrid_handler))
         .route("/api/theaters/{id}/agents/archivist", post(archivist_query_handler))
+        .route("/api/llm/models", get(list_models_handler))
         .route("/api/theaters/{id}/mysteries", get(get_mysteries_board_handler))
         .route("/api/theaters/{id}/chronicler/debrief", post(ingest_debrief_handler))
         // Module 4 : Machina, Dice, Rhai-SQL & Monte-Carlo

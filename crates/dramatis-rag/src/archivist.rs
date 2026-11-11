@@ -44,6 +44,9 @@ pub struct ArchivistVerdict {
     pub answer: String,
     pub citations: Vec<Citation>,
     pub documentary_silence: bool,
+    pub model_used: Option<String>,
+    pub prompt_used: Option<String>,
+    pub tools_used: Option<Vec<String>>,
 }
 
 pub struct ArchivistAgent;
@@ -65,6 +68,9 @@ impl ArchivistAgent {
                 ),
                 citations: Vec::new(),
                 documentary_silence: true,
+                model_used: None,
+                prompt_used: None,
+                tools_used: None,
             }
         } else {
             let formatted_citations: Vec<String> = citations.iter().map(|c| c.format_citation()).collect();
@@ -78,6 +84,9 @@ impl ArchivistAgent {
                 answer: full_answer,
                 citations,
                 documentary_silence: false,
+                model_used: None,
+                prompt_used: None,
+                tools_used: None,
             }
         }
     }

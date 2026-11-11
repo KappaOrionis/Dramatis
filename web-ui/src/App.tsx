@@ -28,6 +28,7 @@ import {
   ChevronUp,
   ChevronDown,
   Eye,
+  Terminal,
   X
 } from 'lucide-react';
 
@@ -110,6 +111,9 @@ interface ArchivistVerdictResponse {
   answer: string;
   citations: CitationItem[];
   documentary_silence: boolean;
+  model_used?: string;
+  prompt_used?: string;
+  tools_used?: string[];
 }
 
 interface TheaterDetails {
@@ -441,11 +445,31 @@ export default function App() {
     citations?: CitationItem[];
     documentarySilence?: boolean;
     timestamp: string;
+    modelUsed?: string;
+    promptUsed?: string;
+    toolsUsed?: string[];
   }[]>([]);
   const [archivistPreviewCitation, setArchivistPreviewCitation] = useState<CitationItem | null>(null);
+  const [archivistSelectedModel, setArchivistSelectedModel] = useState<string>('mistral-small-3.2-24b-instruct-2506');
+  const [availableLlmModels, setAvailableLlmModels] = useState<string[]>([]);
+  const [inspectingPrompt, setInspectingPrompt] = useState<{ prompt: string; tools?: string[]; model?: string } | null>(null);
 
   useEffect(() => {
     loadTheaters();
+    // Charger la liste des modèles locaux LLM
+    fetch('/api/llm/models')
+      .then((r) => r.json())
+      .then((models: string[]) => {
+        if (Array.isArray(models) && models.length > 0) {
+          setAvailableLlmModels(models);
+          if (!models.includes(archivistSelectedModel)) {
+            // Choisir le premier modèle d'inférence non-embedding
+            const nonEmbed = models.find((m) => !m.includes('embed'));
+            if (nonEmbed) setArchivistSelectedModel(nonEmbed);
+          }
+        }
+      })
+      .catch((e) => console.error('Failed to load LLM models:', e));
   }, []);
 
   useEffect(() => {
@@ -965,7 +989,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: queryText,
-          selected_sources: archivistSelectedSources
+          selected_sources: archivistSelectedSources,
+          preferred_model: archivistSelectedModel
         })
       });
 
@@ -978,7 +1003,10 @@ export default function App() {
             text: data.answer,
             citations: data.citations,
             documentarySilence: data.documentary_silence,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            modelUsed: data.model_used,
+            promptUsed: data.prompt_used,
+            toolsUsed: data.tools_used
           }
         ]);
         if (data.citations && data.citations.length > 0) {
@@ -3565,6 +3593,54 @@ export default function App() {
           {activeToolTab === 'archivist' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               
+              {/* Sélecteur de Modèle & Paramètres LLM pour L'Archiviste */}
+              <div style={{
+                padding: '8px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: 'rgba(212, 175, 55, 0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--gold)', fontWeight: 600 }}>
+                  <Bot size={13} />
+                  <span>Modèle LLM de l'Archiviste :</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'flex-end' }}>
+                  <select
+                    value={archivistSelectedModel}
+                    onChange={(e) => setArchivistSelectedModel(e.target.value)}
+                    style={{
+                      maxWidth: '240px',
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      borderRadius: '5px',
+                      padding: '3px 8px',
+                      fontSize: '0.72rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-main)',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                    title="Choisir le modèle d'inférence utilisé par L'Archiviste"
+                  >
+                    {availableLlmModels.length > 0 ? (
+                      availableLlmModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="mistral-small-3.2-24b-instruct-2506">mistral-small-3.2-24b-instruct-2506</option>
+                        <option value="google/gemma-4-12b-qat">google/gemma-4-12b-qat</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
               {/* Section supérieure : Périmètre des Sources cochables (comme NotebookLM) */}
               <div style={{
                 padding: '12px 16px',
@@ -3902,6 +3978,52 @@ export default function App() {
                               </div>
                             ))}
                           </div>
+                        </div>
+                      )}
+
+                      {/* Traçabilité Agent : Modèle utilisé, Prompt transmis et Outils invoqués */}
+                      {msg.role === 'archivist' && (msg.modelUsed || msg.promptUsed) && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingTop: '6px',
+                          marginTop: '2px',
+                          borderTop: '1px dashed var(--border-subtle)',
+                          fontSize: '0.68rem',
+                          color: 'var(--text-dim)'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                            <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Modèle :</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                              {msg.modelUsed || 'Défaut'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setInspectingPrompt({
+                              prompt: msg.promptUsed || 'Aucun prompt enregistré',
+                              tools: msg.toolsUsed || ['RAG Hybride Tantivy BM25', 'Knowledge Graph SQLite', 'Section Scanner'],
+                              model: msg.modelUsed
+                            })}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--gold)',
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                            title="Inspecter le prompt et les outils sollicités par l'Archiviste"
+                          >
+                            <Terminal size={11} />
+                            <span>Voir Prompt & Outils</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -4378,6 +4500,150 @@ export default function App() {
                   padding: '7px 20px',
                   borderRadius: '6px',
                   fontSize: '0.85rem'
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          8. MODALE D'INSPECTION DU PROMPT & DES OUTILS DU HARNAIS (L'ARCHIVISTE)
+         ========================================================================= */}
+      {inspectingPrompt && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 80
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-gold)',
+            borderRadius: '14px',
+            width: '780px',
+            maxWidth: '92vw',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.85)'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--surface-elevated)',
+              borderTopLeftRadius: '14px',
+              borderTopRightRadius: '14px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)' }}>
+                <Terminal size={18} />
+                <span style={{ fontWeight: 700, fontSize: '1rem', fontFamily: 'var(--font-title)', letterSpacing: '0.03em' }}>
+                  Inspection du Prompt & des Outils de L'Archiviste
+                </span>
+              </div>
+              <button
+                onClick={() => setInspectingPrompt(null)}
+                style={{ color: 'var(--text-dim)', fontSize: '1.2rem', padding: '4px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Contenu de l'inspection */}
+            <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+              
+              {/* Modèle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(212, 175, 55, 0.05)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-gold)' }}>
+                <Bot size={15} color="var(--gold)" />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Modèle sollicité :</span>
+                <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', fontWeight: 600 }}>
+                  {inspectingPrompt.model || 'Non spécifié'}
+                </span>
+              </div>
+
+              {/* Outils mobilisés */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.05em' }}>
+                  Outils & Pipelines mobilisés par l'Agent :
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {inspectingPrompt.tools && inspectingPrompt.tools.length > 0 ? (
+                    inspectingPrompt.tools.map((t, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          fontSize: '0.74rem',
+                          fontFamily: 'var(--font-mono)',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-elevated)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)'
+                        }}
+                      >
+                        ⚡ {t}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>RAG Hybride Tantivy + Knowledge Graph SQLite</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Prompt brut complet */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                <span style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-dim)', letterSpacing: '0.05em' }}>
+                  Prompt Complet transmis au Modèle (Instruction Système + Contexte Canonique + Requête) :
+                </span>
+                <pre style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.78rem',
+                  lineHeight: '1.6',
+                  color: 'var(--text-main)',
+                  background: 'rgba(0,0,0,0.5)',
+                  padding: '14px 16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  maxHeight: '340px',
+                  overflowY: 'auto'
+                }}>
+                  {inspectingPrompt.prompt}
+                </pre>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--border-subtle)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              background: 'var(--surface-elevated)',
+              borderBottomLeftRadius: '14px',
+              borderBottomRightRadius: '14px'
+            }}>
+              <button
+                onClick={() => setInspectingPrompt(null)}
+                style={{
+                  background: 'var(--gold)',
+                  color: '#0B0C10',
+                  fontWeight: 700,
+                  padding: '6px 18px',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem'
                 }}
               >
                 Fermer
