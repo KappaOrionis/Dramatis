@@ -1654,7 +1654,7 @@ export default function App() {
 
           {/* ÉTAPE 2 : SOURCES DOCUMENTAIRES (INVENTAIRE RÉEL DU BAC À SABLE) */}
           {activeStep === 'sources' && (
-            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ color: 'var(--gold)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 2</div>
@@ -2132,7 +2132,7 @@ export default function App() {
 
           {/* ÉTAPE 3 : ENCYCLOPÉDIE & NOTES (AVEC TRACE DU CHEMIN SOURCE POUR CHAQUE FICHE) */}
           {activeStep === 'wiki' && (
-            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ color: 'var(--green)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 3</div>
@@ -2376,7 +2376,7 @@ export default function App() {
 
           {/* ÉTAPE 4 : TABLE DE JEU (LIVE AVEC LIENS SOURCES SUR TOUS LES VERDICTS ET CITATIONS) */}
           {activeStep === 'stage' && (
-            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
               
               <div style={{ textAlign: 'center' }}>
                 <div style={{ color: 'var(--amber)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 4</div>
@@ -3121,33 +3121,33 @@ export default function App() {
         </aside>
       )}
 
-      {/* Modale de consultation d'une source canonique */}
+      {/* Modale de consultation d'une source canonique plein écran / grande largeur */}
       {viewingSource && (
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0, 0, 0, 0.75)',
-          backdropFilter: 'blur(4px)',
+          background: 'rgba(0, 0, 0, 0.85)',
+          backdropFilter: 'blur(6px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 1000,
-          padding: '24px'
+          padding: '16px'
         }}>
           <div style={{
             background: 'var(--surface)',
             border: '1px solid var(--border-gold)',
             borderRadius: '14px',
-            width: '100%',
-            maxWidth: '860px',
-            maxHeight: '85vh',
+            width: '95vw',
+            maxWidth: '1600px',
+            height: '92vh',
             display: 'flex',
             flexDirection: 'column',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+            boxShadow: '0 24px 60px rgba(0,0,0,0.8)'
           }}>
             {/* Header modale */}
             <div style={{
-              padding: '16px 20px',
+              padding: '14px 24px',
               borderBottom: '1px solid var(--border-subtle)',
               display: 'flex',
               alignItems: 'center',
@@ -3156,55 +3156,101 @@ export default function App() {
               borderTopLeftRadius: '14px',
               borderTopRightRadius: '14px'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <FileText size={18} color="var(--gold)" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <FileText size={20} color="var(--gold)" />
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                  <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-main)' }}>
                     {viewingSource.file_name}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
                     {viewingSource.relative_path} • {(viewingSource.size_bytes / 1024).toFixed(1)} KB • Bac à sable canonique
                   </div>
                 </div>
               </div>
 
-              <button
-                onClick={() => setViewingSource(null)}
-                style={{
-                  color: 'var(--text-dim)',
-                  padding: '6px',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <X size={18} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {viewingSource.file_type.toLowerCase() === 'pdf' && (
+                  <a
+                    href={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      fontSize: '0.78rem',
+                      color: 'var(--gold)',
+                      textDecoration: 'none',
+                      background: 'var(--gold-surface)',
+                      border: '1px solid var(--border-gold)',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <span>Ouvrir dans un nouvel onglet</span>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+                <button
+                  onClick={() => setViewingSource(null)}
+                  style={{
+                    color: 'var(--text-dim)',
+                    padding: '6px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Corps du document */}
             <div style={{
               flex: 1,
-              overflowY: 'auto',
+              overflow: 'hidden',
               padding: viewingSource.file_type.toLowerCase() === 'pdf' ? '0' : '20px',
               background: 'var(--surface)',
               display: 'flex',
               flexDirection: 'column'
             }}>
               {viewingSource.file_type.toLowerCase() === 'pdf' ? (
-                /* Viewer PDF natif intégré via l'endpoint raw */
-                <iframe
-                  src={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}`}
+                /* Viewer PDF interactif universel (object/embed avec fallback iframe et lien direct) */
+                <object
+                  data={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}#toolbar=1&navpanes=1&statusbar=1`}
+                  type="application/pdf"
                   style={{
                     width: '100%',
                     height: '100%',
-                    minHeight: '68vh',
                     border: 'none',
-                    borderRadius: '0 0 14px 14px'
+                    display: 'block'
                   }}
-                  title={viewingSource.file_name}
-                />
+                >
+                  <iframe
+                    src={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      border: 'none'
+                    }}
+                    title={viewingSource.file_name}
+                  >
+                    <p style={{ padding: '24px', textAlign: 'center', color: 'var(--text-dim)' }}>
+                      Votre navigateur ne supporte pas l'affichage PDF direct.{' '}
+                      <a
+                        href={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--gold)' }}
+                      >
+                        Cliquez ici pour ouvrir le PDF
+                      </a>.
+                    </p>
+                  </iframe>
+                </object>
               ) : viewingSource.is_binary ? (
                 <div style={{
                   padding: '40px 20px',
@@ -3224,16 +3270,16 @@ export default function App() {
                 </div>
               ) : (
                 /* Viewer Markdown & Texte enrichi */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '6px 12px',
+                    padding: '8px 16px',
                     borderRadius: '6px',
                     background: 'var(--gold-surface)',
                     border: '1px solid var(--border-gold)',
-                    fontSize: '0.78rem',
+                    fontSize: '0.82rem',
                     color: 'var(--gold)'
                   }}>
                     <span>Visionneuse Markdown Canonique</span>
@@ -3244,14 +3290,14 @@ export default function App() {
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.84rem',
-                    lineHeight: '1.65',
+                    fontSize: '0.88rem',
+                    lineHeight: '1.7',
                     color: 'var(--text-main)',
                     background: 'rgba(0, 0, 0, 0.35)',
-                    padding: '20px',
+                    padding: '24px',
                     borderRadius: '8px',
                     border: '1px solid var(--border-subtle)',
-                    maxHeight: '65vh',
+                    flex: 1,
                     overflowY: 'auto'
                   }}>
                     {viewingSource.content}
@@ -3262,7 +3308,7 @@ export default function App() {
 
             {/* Footer modale */}
             <div style={{
-              padding: '12px 20px',
+              padding: '12px 24px',
               borderTop: '1px solid var(--border-subtle)',
               display: 'flex',
               justifyContent: 'flex-end',
@@ -3276,9 +3322,9 @@ export default function App() {
                   background: 'var(--gold)',
                   color: '#0B0C10',
                   fontWeight: 700,
-                  padding: '6px 16px',
+                  padding: '7px 20px',
                   borderRadius: '6px',
-                  fontSize: '0.82rem'
+                  fontSize: '0.85rem'
                 }}
               >
                 Fermer
