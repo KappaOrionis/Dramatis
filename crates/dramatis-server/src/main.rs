@@ -609,6 +609,132 @@ async fn search_hybrid_handler(
     Ok(Json(hits))
 }
 
+#[derive(Serialize)]
+pub struct SourceFileEntry {
+    pub file_name: String,
+    pub relative_path: String,
+    pub size_bytes: u64,
+    pub file_type: String,
+}
+
+#[derive(Serialize)]
+pub struct TheaterSignalSheet {
+    pub theater_id: String,
+    pub name: String,
+    pub system_preset: String,
+    pub privacy_mode: String,
+    pub default_language: String,
+    pub sources_count: usize,
+    pub wiki_count: usize,
+    pub personae_count: usize,
+    pub tables_count: usize,
+    pub plays_count: usize,
+    pub current_season: String,
+    pub aura_or_matrix: String,
+    pub agent_curator_summary: String,
+}
+
+async fn list_sources_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<SourceFileEntry>>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let sources_dir = theater_path.join("00_sources");
+    let mut files = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&sources_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("source").to_string();
+                let file_type = path.extension().and_then(|e| e.to_str()).unwrap_or("raw").to_string();
+                let metadata = path.metadata().ok();
+                let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+
+                files.push(SourceFileEntry {
+                    file_name: file_name.clone(),
+                    relative_path: format!("00_sources/{}", file_name),
+                    size_bytes,
+                    file_type,
+                });
+            }
+        }
+    }
+
+    Ok(Json(files))
+}
+
+async fn get_theater_signals_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TheaterSignalSheet>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let sources_count = std::fs::read_dir(theater_path.join("00_sources"))
+        .map(|r| r.flatten().filter(|e| e.path().is_file()).count())
+        .unwrap_or(0);
+
+    let mut wiki_count = 0;
+    if let Ok(cats) = std::fs::read_dir(theater_path.join("01_wiki")) {
+        for cat in cats.flatten() {
+            if cat.path().is_dir() {
+                if let Ok(sub) = std::fs::read_dir(cat.path()) {
+                    wiki_count += sub.flatten().filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("md")).count();
+                }
+            }
+        }
+    }
+
+    let personae_count = std::fs::read_dir(theater_path.join("03_personae"))
+        .map(|r| r.flatten().filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json") && !e.file_name().to_string_lossy().contains("psyche")).count())
+        .unwrap_or(0);
+
+    let tables_count = std::fs::read_dir(theater_path.join("02_machina"))
+        .map(|r| r.flatten().count())
+        .unwrap_or(0);
+
+    let plays_count = std::fs::read_dir(theater_path.join("05_plays"))
+        .map(|r| r.flatten().count())
+        .unwrap_or(0);
+
+    let system_id = ws.manifest.system_id.clone();
+    let privacy = ws.manifest.privacy_mode.clone().unwrap_or_else(|| "strict_local".to_string());
+
+    let aura_or_matrix = match system_id.as_str() {
+        "ArsMagica5e" | "ars-magica-5e" => "Aura Hermétique Niv. 5 (Magic) — Val Negra".to_string(),
+        "Shadowrun6e" | "shadowrun-6e" => "Grille Sécurisée Seattle / GOD Convergence Rating 3".to_string(),
+        "Anastasius" | "anastasius-homebrew" => "Résonance Éthérique Harmonique 2d12 / Synode d'Airain".to_string(),
+        _ => "Standard Deterministic VTT Matrix".to_string(),
+    };
+
+    let agent_curator_summary = format!(
+        "Univers '{}' [Système: {}]. Géré par le pôle Régie (Archiviste, Scribe, Légiste). Moteur temps: Saison {} / Mode de confidentialité: {}. {} source(s) canonique(s) ingérée(s), {} entrée(s) de lore au Wiki sous protection LOCKED_BY_USER.",
+        ws.manifest.name,
+        system_id,
+        format!("{:?}", ws.manifest.chronos.current_season),
+        privacy,
+        sources_count,
+        wiki_count
+    );
+
+    Ok(Json(TheaterSignalSheet {
+        theater_id: id,
+        name: ws.manifest.name,
+        system_preset: system_id,
+        privacy_mode: privacy,
+        default_language: "fr".to_string(),
+        sources_count,
+        wiki_count,
+        personae_count,
+        tables_count,
+        plays_count,
+        current_season: format!("{:?}", ws.manifest.chronos.current_season),
+        aura_or_matrix,
+        agent_curator_summary,
+    }))
+}
+
 async fn archivist_query_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1033,6 +1159,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}", get(get_theater_handler))
         .route("/api/theaters/{id}/snapshots", get(list_snapshots_handler).post(create_snapshot_handler))
         .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
+        .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
+        .route("/api/theaters/{id}/sources", get(list_sources_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler

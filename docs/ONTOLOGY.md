@@ -266,3 +266,4 @@ sequenceDiagram
 | Graphe de Relations | `knowledge_graph.sqlite` | Tables `entities`, `aliases`, `relationships` |
 | Fiches Personnages | `*.persona.json` + `.md` + `.psyche.json` | Triple facette synchronisée |
 | Événements de Jeu | `05_plays/{id}/session_logs.jsonl` | Append-only strict avec support Rewind |
+
