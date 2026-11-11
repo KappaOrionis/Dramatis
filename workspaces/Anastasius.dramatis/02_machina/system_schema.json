@@ -1,8 +1,0 @@
-{
-  "system_name": "Anastasius Engine",
-  "version": "1.4",
-  "dice_mechanic": "2d12_etheric_harmony",
-  "attributes": ["Vigueur", "Acuité", "Pneuma", "Ascendant", "Entropie"],
-  "corruption_gauge_max": 100
-}
-

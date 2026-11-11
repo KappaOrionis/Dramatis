@@ -21,7 +21,12 @@ import {
   Bot,
   SlidersHorizontal,
   HardDrive,
-  CheckCircle2
+  CheckCircle2,
+  FileCode,
+  FileType,
+  ArrowUpDown,
+  Eye,
+  X
 } from 'lucide-react';
 
 // Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
@@ -396,7 +401,11 @@ export default function App() {
   const [sourceUploadFeedback, setSourceUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Recherche & Encyclopédie
+  // Tri, filtrage et consultation des sources
+  const [sourceSortOrder, setSourceSortOrder] = useState<'name-asc' | 'name-desc' | 'type-asc' | 'size-desc' | 'size-asc'>('name-asc');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
+  const [viewingSource, setViewingSource] = useState<{ file_name: string; relative_path: string; content: string; file_type: string; size_bytes: number; is_binary: boolean } | null>(null);
+  const [, setIsLoadingSourceContent] = useState(false);
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
   const [wikiSearchResults, setWikiSearchResults] = useState<any[]>([]);
   const [archivistVerdict, setArchivistVerdict] = useState<ArchivistVerdictResponse | null>(null);
@@ -666,6 +675,82 @@ export default function App() {
       e.target.value = '';
     }
   };
+
+  const handleViewSource = async (fileName: string) => {
+    if (!selectedTheater) return;
+    setIsLoadingSourceContent(true);
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}/sources/content?file_name=${encodeURIComponent(fileName)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setViewingSource(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingSourceContent(false);
+    }
+  };
+
+  const getSourceTypeBadge = (ext: string) => {
+    const clean = ext.toLowerCase().replace('.', '');
+    if (clean === 'pdf') {
+      return {
+        label: 'PDF',
+        color: '#FF6B6B',
+        bg: 'rgba(255, 107, 107, 0.12)',
+        border: 'rgba(255, 107, 107, 0.35)',
+        icon: <FileType size={12} color="#FF6B6B" />
+      };
+    }
+    if (clean === 'md' || clean === 'markdown') {
+      return {
+        label: 'Markdown',
+        color: 'var(--gold)',
+        bg: 'var(--gold-surface)',
+        border: 'var(--border-gold)',
+        icon: <FileText size={12} color="var(--gold)" />
+      };
+    }
+    if (clean === 'json' || clean === 'yaml' || clean === 'yml') {
+      return {
+        label: clean.toUpperCase(),
+        color: '#FF9F1C',
+        bg: 'rgba(255, 159, 28, 0.12)',
+        border: 'rgba(255, 159, 28, 0.35)',
+        icon: <FileCode size={12} color="#FF9F1C" />
+      };
+    }
+    return {
+      label: clean.toUpperCase(),
+      color: 'var(--text-muted)',
+      bg: 'rgba(255, 255, 255, 0.05)',
+      border: 'var(--border-subtle)',
+      icon: <FileText size={12} color="var(--text-muted)" />
+    };
+  };
+
+  const sortedAndFilteredSources = [...sourcesList]
+    .filter((src) => {
+      if (sourceTypeFilter === 'all') return true;
+      return src.file_type.toLowerCase() === sourceTypeFilter.toLowerCase();
+    })
+    .sort((a, b) => {
+      switch (sourceSortOrder) {
+        case 'name-asc':
+          return a.file_name.localeCompare(b.file_name);
+        case 'name-desc':
+          return b.file_name.localeCompare(a.file_name);
+        case 'type-asc':
+          return a.file_type.localeCompare(b.file_type) || a.file_name.localeCompare(b.file_name);
+        case 'size-desc':
+          return b.size_bytes - a.size_bytes;
+        case 'size-asc':
+          return a.size_bytes - b.size_bytes;
+        default:
+          return 0;
+      }
+    });
 
   const handleSaveDirectSource = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1773,68 +1858,169 @@ export default function App() {
                 </form>
               )}
 
-              {/* Liste ou invitation */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {sourcesList.length > 0 ? (
-                  sourcesList.map((src, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '10px',
-                        padding: '14px 18px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <FileText size={20} color="var(--gold)" />
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{src.file_name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', display: 'flex', gap: '12px', marginTop: '2px' }}>
-                            <span>{(src.size_bytes / 1024).toFixed(1)} KB</span>
-                            <span>•</span>
-                            <span style={{ color: 'var(--text-muted)' }}>{src.relative_path}</span>
-                          </div>
-                        </div>
-                      </div>
+              {/* Barre de filtre, tri et statistiques des sources */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                marginTop: '8px',
+                paddingBottom: '4px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold-dim)' }}>
+                    Sources ({sortedAndFilteredSources.length} / {sourcesList.length})
+                  </span>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          onClick={() => handleNavigateToSource(src.relative_path)}
-                          style={{
-                            fontSize: '0.7rem',
+                  {/* Filtres par type */}
+                  <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
+                    {['all', 'md', 'pdf', 'json', 'yaml'].map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setSourceTypeFilter(type)}
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          background: sourceTypeFilter === type ? 'var(--gold)' : 'var(--surface-elevated)',
+                          color: sourceTypeFilter === type ? '#0B0C10' : 'var(--text-dim)',
+                          border: '1px solid',
+                          borderColor: sourceTypeFilter === type ? 'var(--gold)' : 'var(--border)',
+                          fontWeight: sourceTypeFilter === type ? 700 : 500,
+                          textTransform: 'uppercase'
+                        }}
+                      >
+                        {type === 'all' ? 'Tous' : type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sélecteur d'ordonnancement */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ArrowUpDown size={14} color="var(--gold-dim)" />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Trier par :</span>
+                  <select
+                    value={sourceSortOrder}
+                    onChange={(e: any) => setSourceSortOrder(e.target.value)}
+                    style={{
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      color: 'var(--text-main)',
+                      fontSize: '0.78rem',
+                      padding: '4px 8px'
+                    }}
+                  >
+                    <option value="name-asc">Nom (A → Z)</option>
+                    <option value="name-desc">Nom (Z → A)</option>
+                    <option value="type-asc">Type de document</option>
+                    <option value="size-desc">Taille (décroissante)</option>
+                    <option value="size-asc">Taille (croissante)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Liste des sources ou invitation */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {sortedAndFilteredSources.length > 0 ? (
+                  sortedAndFilteredSources.map((src, idx) => {
+                    const badge = getSourceTypeBadge(src.file_type);
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          background: 'var(--surface)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          padding: '12px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                          transition: 'border-color 0.15s ease'
+                        }}
+                      >
+                        {/* Infos document épurées (sans répétition inutile du chemin) */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                          <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '8px',
+                            background: badge.bg,
+                            border: `1px solid ${badge.border}`,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '4px',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}>
+                            {badge.icon}
+                          </div>
+
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              onClick={() => handleViewSource(src.file_name)}
+                              style={{
+                                fontWeight: 600,
+                                fontSize: '0.92rem',
+                                color: 'var(--text-main)',
+                                cursor: 'pointer',
+                                textDecoration: 'none',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title="Cliquer pour consulter le document"
+                            >
+                              {src.file_name}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', display: 'flex', gap: '8px', marginTop: '2px', alignItems: 'center' }}>
+                              <span>{(src.size_bytes / 1024).toFixed(1)} KB</span>
+                              <span>•</span>
+                              <span style={{ color: 'var(--text-muted)' }}>Canonique vérifié</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions & Badge distinctif */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
                             padding: '3px 8px',
                             borderRadius: '4px',
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            border: '1px solid var(--border-subtle)',
-                            color: 'var(--text-muted)'
-                          }}
-                          title="Lien source"
-                        >
-                          <span>{src.relative_path}</span>
-                          <ExternalLink size={10} />
-                        </button>
+                            background: badge.bg,
+                            color: badge.color,
+                            border: `1px solid ${badge.border}`,
+                            letterSpacing: '0.5px'
+                          }}>
+                            {badge.label}
+                          </span>
 
-                        <span style={{
-                          fontSize: '0.7rem',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background: 'var(--gold-surface)',
-                          color: 'var(--gold)',
-                          border: '1px solid var(--border-gold)',
-                          textTransform: 'uppercase'
-                        }}>
-                          {src.file_type}
-                        </span>
+                          <button
+                            onClick={() => handleViewSource(src.file_name)}
+                            style={{
+                              fontSize: '0.75rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              padding: '5px 10px',
+                              borderRadius: '6px',
+                              background: 'var(--gold-surface)',
+                              border: '1px solid var(--border-gold)',
+                              color: 'var(--gold)',
+                              fontWeight: 600
+                            }}
+                            title="Consulter le document source"
+                          >
+                            <Eye size={13} />
+                            <span>Consulter</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div style={{
                     padding: '48px 24px',
@@ -2787,6 +2973,139 @@ export default function App() {
 
           </div>
         </aside>
+      )}
+
+      {/* Modale de consultation d'une source canonique */}
+      {viewingSource && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '24px'
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border-gold)',
+            borderRadius: '14px',
+            width: '100%',
+            maxWidth: '860px',
+            maxHeight: '85vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+          }}>
+            {/* Header modale */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border-subtle)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'var(--surface-elevated)',
+              borderTopLeftRadius: '14px',
+              borderTopRightRadius: '14px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FileText size={18} color="var(--gold)" />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                    {viewingSource.file_name}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                    {viewingSource.relative_path} • {(viewingSource.size_bytes / 1024).toFixed(1)} KB • Bac à sable canonique
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setViewingSource(null)}
+                style={{
+                  color: 'var(--text-dim)',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Corps du document */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '20px',
+              background: 'var(--surface)'
+            }}>
+              {viewingSource.is_binary ? (
+                <div style={{
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}>
+                  <FileType size={42} color="var(--gold-dim)" />
+                  <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                    {viewingSource.content}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', maxWidth: '420px', lineHeight: 1.5 }}>
+                    Ce document PDF / binaire est indexé par Tantivy et LanceDB. L'Archiviste et les agents du harnais peuvent citer ses pages et extraits.
+                  </p>
+                </div>
+              ) : (
+                <pre style={{
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.82rem',
+                  lineHeight: '1.6',
+                  color: 'var(--text-main)',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle)'
+                }}>
+                  {viewingSource.content}
+                </pre>
+              )}
+            </div>
+
+            {/* Footer modale */}
+            <div style={{
+              padding: '12px 20px',
+              borderTop: '1px solid var(--border-subtle)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              background: 'var(--surface-elevated)',
+              borderBottomLeftRadius: '14px',
+              borderBottomRightRadius: '14px'
+            }}>
+              <button
+                onClick={() => setViewingSource(null)}
+                style={{
+                  background: 'var(--gold)',
+                  color: '#0B0C10',
+                  fontWeight: 700,
+                  padding: '6px 16px',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem'
+                }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

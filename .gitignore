@@ -11,10 +11,11 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
-# Dramatis runtime & data
-workspaces/*/04_index/
-workspaces/*/05_plays/*/logs/
+# Dramatis runtime & data (local only, never committed to git)
+workspaces/
+*.sqlite
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+
 

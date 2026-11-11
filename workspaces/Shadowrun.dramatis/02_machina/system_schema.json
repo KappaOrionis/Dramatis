@@ -1,9 +1,0 @@
-{
-  "system_name": "Shadowrun 6th World",
-  "version": "6.0",
-  "dice_mechanic": "d6_pool_hits_5_6_glitch_1",
-  "planes": ["Physical", "Astral", "MatrixAr", "MatrixVr"],
-  "condition_monitors": ["Physical", "Stun", "Matrix", "Overflow"],
-  "base_essence": "6.00"
-}
-

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode, Uri},
     response::IntoResponse,
     routing::{get, post},
@@ -750,6 +750,54 @@ async fn list_sources_handler(
     Ok(Json(files))
 }
 
+#[derive(Deserialize)]
+pub struct SourceContentQuery {
+    pub file_name: String,
+}
+
+#[derive(Serialize)]
+pub struct SourceContentResponse {
+    pub file_name: String,
+    pub relative_path: String,
+    pub file_type: String,
+    pub size_bytes: usize,
+    pub content: String,
+    pub is_binary: bool,
+}
+
+async fn get_source_content_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(query): Query<SourceContentQuery>,
+) -> Result<Json<SourceContentResponse>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let file_path = theater_path.join("00_sources").join(&query.file_name);
+
+    if !file_path.exists() || !file_path.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let file_type = file_path.extension().and_then(|e| e.to_str()).unwrap_or("raw").to_lowercase();
+    let size_bytes = file_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
+
+    let is_binary = matches!(file_type.as_str(), "pdf" | "png" | "jpg" | "jpeg" | "webp" | "bin");
+
+    let content = if is_binary {
+        format!("[Fichier binaire {} ({} KB) indexé dans le bac à sable]", file_type.to_uppercase(), size_bytes / 1024)
+    } else {
+        std::fs::read_to_string(&file_path).unwrap_or_else(|_| "[Impossible de lire le contenu texte du fichier]".to_string())
+    };
+
+    Ok(Json(SourceContentResponse {
+        file_name: query.file_name.clone(),
+        relative_path: format!("00_sources/{}", query.file_name),
+        file_type,
+        size_bytes,
+        content,
+        is_binary,
+    }))
+}
+
 async fn get_theater_signals_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1268,6 +1316,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
         .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
         .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
+        .route("/api/theaters/{id}/sources/content", get(get_source_content_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler
