@@ -266,102 +266,25 @@ export default function App() {
           </button>
         </div>
 
-        {/* Corps de navigation scrollable */}
+        {/* Corps de navigation scrollable - Parcours Naturel Utilisateur */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          {/* STRATE 1 : Pôles & Ateliers Globaux */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <button
-              onClick={() => setActiveWorkspaceView('notebook')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: activeWorkspaceView === 'notebook' ? 'var(--sidebar-active)' : 'transparent',
-                color: activeWorkspaceView === 'notebook' ? 'var(--gold)' : 'var(--text-main)',
-                fontSize: '0.85rem',
-                fontWeight: 500
-              }}
-            >
-              <MessageSquare size={16} />
-              {!isSidebarCollapsed && <span>Scène & Session</span>}
-            </button>
-
-            <button
-              onClick={() => setActiveWorkspaceView('wiki')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: activeWorkspaceView === 'wiki' ? 'var(--sidebar-active)' : 'transparent',
-                color: activeWorkspaceView === 'wiki' ? 'var(--gold)' : 'var(--text-main)',
-                fontSize: '0.85rem',
-                fontWeight: 500
-              }}
-            >
-              <BookOpen size={16} />
-              {!isSidebarCollapsed && <span>Bibliothèque & Wiki</span>}
-            </button>
-
-            <button
-              onClick={() => setActiveWorkspaceView('rules')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: activeWorkspaceView === 'rules' ? 'var(--sidebar-active)' : 'transparent',
-                color: activeWorkspaceView === 'rules' ? 'var(--gold)' : 'var(--text-main)',
-                fontSize: '0.85rem',
-                fontWeight: 500
-              }}
-            >
-              <Cpu size={16} />
-              {!isSidebarCollapsed && <span>RulesLab (Machina)</span>}
-            </button>
-
-            <button
-              onClick={() => setActiveWorkspaceView('persona')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: activeWorkspaceView === 'persona' ? 'var(--sidebar-active)' : 'transparent',
-                color: activeWorkspaceView === 'persona' ? 'var(--gold)' : 'var(--text-main)',
-                fontSize: '0.85rem',
-                fontWeight: 500
-              }}
-            >
-              <Shield size={16} />
-              {!isSidebarCollapsed && <span>PersonaForge & Coffre</span>}
-            </button>
-          </div>
-
-          <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
-
-          {/* STRATE 2 : Section Théâtres (Notebooks) */}
+          {/* ÉTAPE 1 DU PARCOURS : Sélection / Contexte du Monde (THÉÂTRES) */}
           <div>
             {!isSidebarCollapsed && (
               <div style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                color: 'var(--text-dim)',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                color: 'var(--gold)',
                 textTransform: 'uppercase',
-                letterSpacing: '0.05em',
+                letterSpacing: '0.08em',
                 padding: '0 12px 8px 12px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between'
               }}>
-                <span>Théâtres (.dramatis)</span>
-                <Plus size={14} style={{ cursor: 'pointer' }} />
+                <span>1. Monde & Univers</span>
+                <Plus size={14} style={{ cursor: 'pointer', color: 'var(--text-dim)' }} />
               </div>
             )}
 
@@ -409,48 +332,149 @@ export default function App() {
 
           <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
 
-          {/* STRATE 3 : Canaux Épinglés (StageChannels) */}
-          {!isSidebarCollapsed && (
-            <div>
+          {/* ÉTAPE 2 DU PARCOURS : Cœur de la Session (EN JEU / TABLE DE JEU) */}
+          <div>
+            {!isSidebarCollapsed && (
               <div style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                color: 'var(--text-dim)',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                color: 'var(--amber)',
                 textTransform: 'uppercase',
-                letterSpacing: '0.05em',
+                letterSpacing: '0.08em',
                 padding: '0 12px 8px 12px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between'
               }}>
-                <span>Canaux & Scènes</span>
-                <Pin size={12} />
+                <span>2. Table de Jeu (Live)</span>
+                <Pin size={12} style={{ color: 'var(--text-dim)' }} />
               </div>
+            )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                {pinnedChannels.map((ch) => (
-                  <button
-                    key={ch.id}
-                    onClick={() => setActiveChannel(ch.name)}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      fontSize: '0.8rem',
-                      color: activeChannel === ch.name ? 'var(--text-main)' : 'var(--text-dim)',
-                      background: activeChannel === ch.name ? 'rgba(255, 255, 255, 0.05)' : 'transparent'
-                    }}
-                  >
-                    <Hash size={14} color={ch.type === 'whisper' ? 'var(--purple)' : ch.type === 'net' ? 'var(--teal)' : 'var(--amber)'} />
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.name}</span>
-                  </button>
-                ))}
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <button
+                onClick={() => setActiveWorkspaceView('notebook')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  background: activeWorkspaceView === 'notebook' ? 'var(--sidebar-active)' : 'transparent',
+                  color: activeWorkspaceView === 'notebook' ? 'var(--amber)' : 'var(--text-main)',
+                  fontSize: '0.85rem',
+                  fontWeight: 500
+                }}
+              >
+                <MessageSquare size={16} />
+                {!isSidebarCollapsed && <span>Scène Active & Narration</span>}
+              </button>
+
+              {/* Canaux de communication live de la table */}
+              {!isSidebarCollapsed && pinnedChannels.map((ch) => (
+                <button
+                  key={ch.id}
+                  onClick={() => {
+                    setActiveChannel(ch.name);
+                    setActiveWorkspaceView('notebook');
+                  }}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 12px 6px 28px',
+                    borderRadius: '6px',
+                    fontSize: '0.8rem',
+                    color: activeChannel === ch.name && activeWorkspaceView === 'notebook' ? 'var(--text-main)' : 'var(--text-dim)',
+                    background: activeChannel === ch.name && activeWorkspaceView === 'notebook' ? 'rgba(255, 255, 255, 0.05)' : 'transparent'
+                  }}
+                >
+                  <Hash size={13} color={ch.type === 'whisper' ? 'var(--purple)' : ch.type === 'net' ? 'var(--teal)' : 'var(--amber)'} />
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.name}</span>
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+
+          <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
+
+          {/* ÉTAPE 3 DU PARCOURS : Pôle Régie & Préparation (COULISSES) */}
+          <div>
+            {!isSidebarCollapsed && (
+              <div style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                color: 'var(--text-dim)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                padding: '0 12px 8px 12px'
+              }}>
+                <span>3. Coulisses & Préparation</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              <button
+                onClick={() => setActiveWorkspaceView('persona')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  background: activeWorkspaceView === 'persona' ? 'var(--sidebar-active)' : 'transparent',
+                  color: activeWorkspaceView === 'persona' ? 'var(--green)' : 'var(--text-main)',
+                  fontSize: '0.85rem',
+                  fontWeight: 500
+                }}
+              >
+                <Shield size={16} />
+                {!isSidebarCollapsed && <span>Personnages & Alliances</span>}
+              </button>
+
+              <button
+                onClick={() => setActiveWorkspaceView('wiki')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  background: activeWorkspaceView === 'wiki' ? 'var(--sidebar-active)' : 'transparent',
+                  color: activeWorkspaceView === 'wiki' ? 'var(--gold)' : 'var(--text-main)',
+                  fontSize: '0.85rem',
+                  fontWeight: 500
+                }}
+              >
+                <BookOpen size={16} />
+                {!isSidebarCollapsed && <span>Encyclopédie & Lore</span>}
+              </button>
+
+              <button
+                onClick={() => setActiveWorkspaceView('rules')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  background: activeWorkspaceView === 'rules' ? 'var(--sidebar-active)' : 'transparent',
+                  color: activeWorkspaceView === 'rules' ? 'var(--teal)' : 'var(--text-main)',
+                  fontSize: '0.85rem',
+                  fontWeight: 500
+                }}
+              >
+                <Cpu size={16} />
+                {!isSidebarCollapsed && <span>Règles & Moteur (Machina)</span>}
+              </button>
+            </div>
+          </div>
+
         </div>
 
         {/* Footer Sidebar : Statut Système & Rôle MJ */}
