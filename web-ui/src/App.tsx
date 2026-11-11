@@ -5,61 +5,68 @@ import {
   Shield,
   Dices,
   Plus,
-  RefreshCw,
-  FolderOpen,
-  Search,
-  GitBranch,
-  FileText,
   Sparkles,
-  Clock,
   RotateCcw,
-  CheckCircle2,
-  AlertTriangle
+  FolderOpen,
+  Sliders,
+  Send,
+  Pin,
+  MessageSquare,
+  Hash,
+  Settings,
+  Database
 } from 'lucide-react';
 
+interface TheaterSnapshot {
+  commit_hash: string;
+  message: string;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'theater' | 'rules' | 'persona' | 'stage'>('theater');
-  const [theaters, setTheaters] = useState<string[]>([]);
+  // Navigation principale
+  const [activeWorkspaceView, setActiveWorkspaceView] = useState<'notebook' | 'wiki' | 'rules' | 'persona'>('notebook');
+  const [theaters, setTheaters] = useState<string[]>(['ArsMagica.dramatis', 'Anastasius.dramatis', 'Shadowrun.dramatis']);
   const [selectedTheater, setSelectedTheater] = useState<string>('ArsMagica.dramatis');
-  const [newTheaterName, setNewTheaterName] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [, setLoading] = useState(false);
 
-  // Module 1 & 3 : Wiki, RAG, Archivist & Snapshots
-  const [ragQuery, setRagQuery] = useState('Doissetep');
+  // Strate 3 - Canaux épinglés
+  const pinnedChannels = [
+    { id: 'zone-1', name: 'zone-val-negra', type: 'zone', pinned: true },
+    { id: 'whisper-1', name: 'whisper-gm-lucius', type: 'whisper', pinned: true },
+    { id: 'net-1', name: 'net-commlink-seattle', type: 'net', pinned: true },
+  ];
+  const [activeChannel, setActiveChannel] = useState<string>('zone-val-negra');
+
+  // Omni-Bar / Prompting
+  const [omniInput, setOmniInput] = useState('');
+  const [activeAgentEngine, setActiveAgentEngine] = useState<'archivist' | 'arbiter' | 'director' | 'montecarlo'>('archivist');
+  
+  // États de données (synchronisés avec l'API Dramatis)
+  const [snapshots, setSnapshots] = useState<TheaterSnapshot[]>([]);
+  const [personae, setPersonae] = useState<any[]>([]);
+  const [stageLogs, setStageLogs] = useState<any[]>([]);
   const [archivistAnswer, setArchivistAnswer] = useState<string | null>(null);
-  const [snapshots, setSnapshots] = useState<Array<{ commit_hash: string; message: string }>>([]);
-  const [newWikiTitle, setNewWikiTitle] = useState('');
-  const [newWikiBody, setNewWikiBody] = useState('');
-  const [ingestFeedback, setIngestFeedback] = useState<string | null>(null);
-
-  // Module 4 : Machina, Dice, Monte-Carlo, Rhai & Edge
-  const [diceCount, setDiceCount] = useState(3);
-  const [diceSides, setDiceSides] = useState(6);
-  const [diceMod] = useState(0);
-  const [diceExpr, setDiceExpr] = useState('4d6kh3+2');
-  const [rollResult, setRollResult] = useState<string | null>(null);
+  
+  // RulesLab & Machina states
+  const [rollResult, setRollResult] = useState<any | null>(null);
   const [mcSummary, setMcSummary] = useState<any | null>(null);
   const [rhaiScript, setRhaiScript] = useState('let bonus = roll("1d6"); 10 + bonus');
   const [rhaiOutput, setRhaiOutput] = useState<string | null>(null);
-  const [edgeAr, setEdgeAr] = useState(14);
-  const [edgeDr, setEdgeDr] = useState(9);
-  const [edgeResult, setEdgeResult] = useState<any | null>(null);
 
-  // Module 5 : PersonaForge, Creation, Artificer & Handout
-  const [personae, setPersonae] = useState<any[]>([]);
-  const [srCreationResult, setSrCreationResult] = useState<any | null>(null);
+  // Persona states
   const [artificerResult, setArtificerResult] = useState<any | null>(null);
   const [handoutHtml, setHandoutHtml] = useState<string | null>(null);
 
-  // Module 6 : StageTable, Resolution Gate, Interception & Event Logs
-  const [stageLogs, setStageLogs] = useState<any[]>([]);
-  const [intentionActor, setIntentionActor] = useState('Lucius Hermeticus');
-  const [intentionAction, setIntentionAction] = useState('CastSpell (Pilum of Fire)');
-  const [intentionExpr, setIntentionExpr] = useState('1d10+15');
-  const [targetDefense, setTargetDefense] = useState(18);
+  // Stage & Déterministe states
   const [physicalDiceOverride, setPhysicalDiceOverride] = useState<string>('');
   const [stageVerdict, setStageVerdict] = useState<string | null>(null);
-  const [interceptionVerdict, setInterceptionVerdict] = useState<string | null>(null);
+
+  // Wiki state
+  const [newWikiTitle, setNewWikiTitle] = useState('');
+  const [newWikiBody, setNewWikiBody] = useState('');
+  const [ingestFeedback, setIngestFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     loadTheaters();
@@ -77,9 +84,11 @@ export default function App() {
       const res = await fetch('/api/theaters');
       if (res.ok) {
         const data: string[] = await res.json();
-        setTheaters(data);
-        if (data.length > 0 && !data.includes(selectedTheater)) {
-          setSelectedTheater(data[0]);
+        if (data.length > 0) {
+          setTheaters(data);
+          if (!data.includes(selectedTheater)) {
+            setSelectedTheater(data[0]);
+          }
         }
       }
     } catch (e) {
@@ -104,785 +113,1126 @@ export default function App() {
     }
   };
 
-  const handleCreateTheater = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTheaterName.trim()) return;
-    try {
-      setLoading(true);
-      await fetch('/api/theaters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: newTheaterName.trim() })
-      });
-      setNewTheaterName('');
-      await loadTheaters();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Actions Omni-Prompt
+  const handleOmniSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!omniInput.trim()) return;
 
-  const handleIngestMarkdown = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newWikiTitle.trim() || !newWikiBody.trim()) return;
-    const slug = newWikiTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-    const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        doc_id: slug,
-        title: newWikiTitle,
-        category: 'lieux',
-        markdown_content: newWikiBody
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setIngestFeedback(`Indexé : ${data.doc_id} (${data.sections_extracted} section(s), Résolution: ${data.resolution})`);
-      setNewWikiTitle('');
-      setNewWikiBody('');
-    }
-  };
+    const query = omniInput;
+    setOmniInput('');
 
-  const handleAskArchivist = async () => {
-    const res = await fetch(`/api/theaters/${selectedTheater}/agents/archivist`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: ragQuery })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setArchivistAnswer(data.answer);
-    }
-  };
-
-  const handleCreateSnapshot = async () => {
-    const res = await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: `Snapshot manuel (${new Date().toLocaleTimeString()})` })
-    });
-    if (res.ok) {
-      loadTheaterContext(selectedTheater);
-    }
-  };
-
-  const rollStandardDice = async () => {
-    const res = await fetch('/api/machina/roll/standard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: diceCount, sides: diceSides, modifier: diceMod })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setRollResult(`${data.details}`);
-    }
-  };
-
-  const rollExpressionDice = async () => {
-    const res = await fetch('/api/machina/roll/expression', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expression: diceExpr })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const succ = data.is_success !== null ? (data.is_success ? ' [SUCCÈS]' : ' [ÉCHEC]') : '';
-      setRollResult(`${data.expression} -> Dés: [${data.all_rolls.join(', ')}] | Gardés: [${data.kept_rolls.join(', ')}] = Total ${data.total}${succ}`);
-    }
-  };
-
-  const rollShadowrunPool = async () => {
-    const res = await fetch('/api/machina/roll/shadowrun', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pool_size: diceCount })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const glitchText = data.is_critical_glitch
-        ? ' ⚠️ CRITICAL GLITCH !'
-        : data.is_glitch
-        ? ' ⚠️ GLITCH !'
-        : '';
-      setRollResult(`Pool ${data.pool_size}d6 -> [${data.rolls.join(', ')}] = ${data.hits} Succès (Hits)${glitchText}`);
-    }
-  };
-
-  const rollArsMagicaStress = async () => {
-    const res = await fetch('/api/machina/roll/ars-magica', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ botch_dice: 2 })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.is_botch_check) {
-        setRollResult(`Tirage Initial: 0 -> Vérification de Botch (2 dés): ${data.botch_zeros} zéro(s) = ${data.is_botch ? '💥 BOTCH !' : 'Échec Simple (0)'}`);
-      } else {
-        setRollResult(`Tirage Initial: ${data.initial_roll} (x${data.multiplier}) -> Score Final du Dé: ${data.final_die_value}`);
+    if (activeAgentEngine === 'archivist') {
+      try {
+        const res = await fetch(`/api/theaters/${selectedTheater}/agents/archivist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setArchivistAnswer(data.answer);
+          loadTheaterContext(selectedTheater);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    } else if (activeAgentEngine === 'arbiter') {
+      try {
+        const res = await fetch('/api/machina/roll/expression', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expression: query })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRollResult(data);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    } else if (activeAgentEngine === 'director') {
+      try {
+        const overrideVal = physicalDiceOverride.trim() !== '' ? Number(physicalDiceOverride) : null;
+        const res = await fetch(`/api/theaters/${selectedTheater}/stage/resolve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            intention: {
+              actor_id: personae[0]?.id || 'Lucius Hermeticus',
+              action_type: query,
+              target_id: 'Cible Tactique',
+              skill_expression: '1d10+12',
+              situational_modifiers: [['Aura', 3]]
+            },
+            target_defense: 15,
+            physical_dice_override: overrideVal
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setStageVerdict(data.deterministic_verdict);
+          loadTheaterContext(selectedTheater);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    } else if (activeAgentEngine === 'montecarlo') {
+      try {
+        const res = await fetch('/api/machina/simulate/standard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dice_count: 3,
+            dice_sides: 6,
+            modifier: 2,
+            target_threshold: 12,
+            iterations: 10000
+          })
+        });
+        if (res.ok) {
+          setMcSummary(await res.json());
+        }
+      } catch (err) {
+        console.error(err);
       }
     }
   };
 
-  const runMonteCarlo = async () => {
-    const res = await fetch('/api/machina/simulate/standard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: diceCount, sides: diceSides, modifier: diceMod, threshold: 12, iterations: 10000 })
-    });
-    if (res.ok) {
-      setMcSummary(await res.json());
-    }
-  };
-
-  const runRhaiEval = async () => {
-    const res = await fetch(`/api/theaters/${selectedTheater}/machina/eval`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: rhaiScript, variables: {} })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setRhaiOutput(`Résultat Rhai : ${data.result}`);
-    }
-  };
-
-  const runEdgeEval = async () => {
-    const res = await fetch('/api/machina/tactical-edge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        attack_rating: edgeAr,
-        defense_rating: edgeDr,
-        cover: 'light',
-        lighting: 'clear',
-        attacker_has_thermal: true
-      })
-    });
-    if (res.ok) {
-      setEdgeResult(await res.json());
-    }
-  };
-
-  const runSr6Validation = async () => {
-    const res = await fetch('/api/persona/validate/sr6', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        metatype_priority: 'D',
-        attributes_priority: 'A',
-        magic_priority: 'B',
-        skills_priority: 'C',
-        resources_priority: 'E',
-        base_magic_rating: 4,
-        cyberware_essence_costs: [0.20, 0.35]
-      })
-    });
-    if (res.ok) {
-      setSrCreationResult(await res.json());
-    }
-  };
-
-  const runArtificerEval = async () => {
-    const res = await fetch('/api/persona/artificer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        spell_or_item_name: 'Pilum of Fire',
-        technique_name: 'Creo',
-        technique_score: 10,
-        form_name: 'Ignem',
-        form_score: 12,
-        intelligence_score: 3,
-        magic_theory_score: 5,
-        aura_modifier: 4,
-        lab_quality_modifier: 2,
-        base_guideline_level: 10,
-        range_magnitudes: 2,
-        duration_magnitudes: 0,
-        target_magnitudes: 0
-      })
-    });
-    if (res.ok) {
-      setArtificerResult(await res.json());
-    }
-  };
-
-  const runHandoutExport = async () => {
-    const res = await fetch('/api/export/handout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'Briefing : Le Pacte de Val Negra',
-        markdown_content: 'Rapport public aux mages.\n:::secret\nNote MJ : Le Chambellan est sous contrôle mental de la Maison Tremere.\n:::\nBonne chance.',
-        role: 'player',
-        actor_id: 'lucius'
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setHandoutHtml(data.sanitized_markdown);
-    }
-  };
-
-  const handleResolveStageIntention = async () => {
-    const overrideVal = physicalDiceOverride.trim() !== '' ? Number(physicalDiceOverride) : null;
-    const res = await fetch(`/api/theaters/${selectedTheater}/stage/resolve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        intention: {
-          actor_id: intentionActor,
-          action_type: intentionAction,
-          target_id: 'Gargouille de Pierre',
-          skill_expression: intentionExpr,
-          situational_modifiers: [['Aura Hermétique', 3]]
-        },
-        target_defense: targetDefense,
-        physical_dice_override: overrideVal
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setStageVerdict(data.deterministic_verdict);
-      loadTheaterContext(selectedTheater);
-    }
-  };
-
   const handleStageRewind = async () => {
-    const res = await fetch(`/api/theaters/${selectedTheater}/stage/rewind`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ turns_to_rewind: 1 })
-    });
-    if (res.ok) {
-      setStageLogs(await res.json());
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}/stage/rewind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turns_to_rewind: 1 })
+      });
+      if (res.ok) {
+        setStageLogs(await res.json());
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleTestInterception = async () => {
-    const res = await fetch('/api/stage/interception', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        hook: {
-          listener_actor_id: 'Decker_Spider_Renraku',
-          hook_type: 'matrix_snoop',
-          perception_skill_rating: 14,
-          stealth_or_encryption_threshold: 11
-        },
-        message_content: 'Canal #net-commlink : Sabotage du serveur central à 02h00.'
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setInterceptionVerdict(data.explanation);
-    }
+  // Helper pour badge sources
+  const getSourceCount = () => {
+    return 12 + snapshots.length + personae.length;
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Topbar compacte 48px */}
-      <header style={{
-        height: '48px',
-        background: 'var(--surface)',
-        borderBottom: '1px solid var(--border)',
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
+      
+      {/* =========================================================================
+          1. SIDEBAR À 3 STRATES (Inspirée de Gemini Notebook + AnythingLLM)
+         ========================================================================= */}
+      <aside style={{
+        width: isSidebarCollapsed ? '64px' : '280px',
+        background: 'var(--sidebar-bg)',
+        borderRight: '1px solid var(--border)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 20px'
+        flexDirection: 'column',
+        transition: 'width 0.2s ease',
+        flexShrink: 0,
+        zIndex: 10
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '0.1em' }}>
-            🎭 DRAMATIS
-          </span>
-          <span style={{
-            fontSize: '0.7rem',
-            padding: '2px 8px',
-            borderRadius: '9999px',
-            background: 'rgba(16, 185, 129, 0.15)',
-            color: 'var(--green)',
-            border: '1px solid rgba(16, 185, 129, 0.4)',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px'
-          }}>
-            <span style={{ width: '6px', height: '6px', background: 'var(--green)', borderRadius: '50%' }}></span>
-            DAEMON v2.1.0 ONLINE
-          </span>
-          <select
-            value={selectedTheater}
-            onChange={(e) => setSelectedTheater(e.target.value)}
-            style={{
-              background: 'var(--surface-elevated)',
-              color: 'var(--gold)',
-              border: '1px solid var(--border)',
-              borderRadius: '4px',
-              padding: '4px 8px',
-              fontSize: '0.8rem',
-              fontWeight: 600
-            }}
+        {/* En-tête Sidebar avec Logo et Toggle */}
+        <div style={{
+          height: '52px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+          padding: '0 16px',
+          borderBottom: '1px solid var(--border-subtle)'
+        }}>
+          {!isSidebarCollapsed && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={18} color="var(--gold)" />
+              <span style={{
+                fontFamily: 'var(--font-title)',
+                fontWeight: 700,
+                fontSize: '1.05rem',
+                letterSpacing: '0.08em',
+                color: 'var(--gold)'
+              }}>
+                DRAMATIS
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            style={{ padding: '6px', borderRadius: '6px', color: 'var(--text-muted)' }}
+            title="Replier/Déplier la barre latérale"
           >
-            {theaters.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            <Sliders size={16} />
+          </button>
         </div>
 
-        {/* 4 Onglets Spatiaux */}
-        <nav style={{ display: 'flex', gap: '4px', height: '100%' }}>
-          <button
-            onClick={() => setActiveTab('theater')}
-            style={{
-              background: activeTab === 'theater' ? 'var(--surface-elevated)' : 'transparent',
-              color: activeTab === 'theater' ? 'var(--gold)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: activeTab === 'theater' ? '2px solid var(--gold)' : '2px solid transparent',
-              padding: '0 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.85rem',
-              fontWeight: 600
-            }}
-          >
-            <BookOpen size={16} /> TheaterExplorer
-          </button>
-          <button
-            onClick={() => setActiveTab('rules')}
-            style={{
-              background: activeTab === 'rules' ? 'var(--surface-elevated)' : 'transparent',
-              color: activeTab === 'rules' ? 'var(--amber)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: activeTab === 'rules' ? '2px solid var(--amber)' : '2px solid transparent',
-              padding: '0 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.85rem',
-              fontWeight: 600
-            }}
-          >
-            <Cpu size={16} /> RulesLab
-          </button>
-          <button
-            onClick={() => setActiveTab('persona')}
-            style={{
-              background: activeTab === 'persona' ? 'var(--surface-elevated)' : 'transparent',
-              color: activeTab === 'persona' ? 'var(--teal)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: activeTab === 'persona' ? '2px solid var(--teal)' : '2px solid transparent',
-              padding: '0 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.85rem',
-              fontWeight: 600
-            }}
-          >
-            <Shield size={16} /> PersonaForge
-          </button>
-          <button
-            onClick={() => setActiveTab('stage')}
-            style={{
-              background: activeTab === 'stage' ? 'var(--surface-elevated)' : 'transparent',
-              color: activeTab === 'stage' ? 'var(--purple)' : 'var(--text-muted)',
-              border: 'none',
-              borderBottom: activeTab === 'stage' ? '2px solid var(--purple)' : '2px solid transparent',
-              padding: '0 16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.85rem',
-              fontWeight: 600
-            }}
-          >
-            <Dices size={16} /> StageTable
-          </button>
-        </nav>
-      </header>
+        {/* Corps de navigation scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          
+          {/* STRATE 1 : Pôles & Ateliers Globaux */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <button
+              onClick={() => setActiveWorkspaceView('notebook')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                background: activeWorkspaceView === 'notebook' ? 'var(--sidebar-active)' : 'transparent',
+                color: activeWorkspaceView === 'notebook' ? 'var(--gold)' : 'var(--text-main)',
+                fontSize: '0.85rem',
+                fontWeight: 500
+              }}
+            >
+              <MessageSquare size={16} />
+              {!isSidebarCollapsed && <span>Scène & Session</span>}
+            </button>
 
-      {/* Contenu principal */}
-      <main style={{ flex: 1, padding: '24px', maxWidth: '1280px', width: '100%', margin: '0 auto' }}>
-        {activeTab === 'theater' && (
+            <button
+              onClick={() => setActiveWorkspaceView('wiki')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                background: activeWorkspaceView === 'wiki' ? 'var(--sidebar-active)' : 'transparent',
+                color: activeWorkspaceView === 'wiki' ? 'var(--gold)' : 'var(--text-main)',
+                fontSize: '0.85rem',
+                fontWeight: 500
+              }}
+            >
+              <BookOpen size={16} />
+              {!isSidebarCollapsed && <span>Bibliothèque & Wiki</span>}
+            </button>
+
+            <button
+              onClick={() => setActiveWorkspaceView('rules')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                background: activeWorkspaceView === 'rules' ? 'var(--sidebar-active)' : 'transparent',
+                color: activeWorkspaceView === 'rules' ? 'var(--gold)' : 'var(--text-main)',
+                fontSize: '0.85rem',
+                fontWeight: 500
+              }}
+            >
+              <Cpu size={16} />
+              {!isSidebarCollapsed && <span>RulesLab (Machina)</span>}
+            </button>
+
+            <button
+              onClick={() => setActiveWorkspaceView('persona')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                background: activeWorkspaceView === 'persona' ? 'var(--sidebar-active)' : 'transparent',
+                color: activeWorkspaceView === 'persona' ? 'var(--gold)' : 'var(--text-main)',
+                fontSize: '0.85rem',
+                fontWeight: 500
+              }}
+            >
+              <Shield size={16} />
+              {!isSidebarCollapsed && <span>PersonaForge & Coffre</span>}
+            </button>
+          </div>
+
+          <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
+
+          {/* STRATE 2 : Section Théâtres (Notebooks) */}
           <div>
-            <div style={{ marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '1.6rem', color: 'var(--gold)', marginBottom: '6px' }}>
-                📖 TheaterExplorer — Espaces de Jeu, Ingestion RAG & Snapshots Git
-              </h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                Théâtre actif : <strong style={{ color: 'var(--gold)' }}>{selectedTheater}</strong> — Recherche Hybride 3-Voies (Tantivy BM25 + Vecteurs + Graphe SQLite).
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-              {/* Recherche Hybride & Archiviste */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1rem', color: 'var(--gold)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Search size={16} /> L'Archiviste (`dramatis.archivist`) — RAG & Citations Strictes
-                </h3>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  <input
-                    type="text"
-                    value={ragQuery}
-                    onChange={(e) => setRagQuery(e.target.value)}
-                    placeholder="Rechercher un lieu, sort, PNJ (ex: Doissetep, Val Negra, Renraku)..."
-                    style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px 12px', borderRadius: '4px' }}
-                  />
-                  <button
-                    onClick={handleAskArchivist}
-                    style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '4px', padding: '8px 14px', fontWeight: 700 }}
-                  >
-                    Interroger
-                  </button>
-                </div>
-                {archivistAnswer && (
-                  <div style={{ padding: '10px', background: 'var(--surface-elevated)', borderLeft: '3px solid var(--gold)', fontSize: '0.85rem' }}>
-                    {archivistAnswer}
-                  </div>
-                )}
+            {!isSidebarCollapsed && (
+              <div style={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: 'var(--text-dim)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                padding: '0 12px 8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <span>Théâtres (.dramatis)</span>
+                <Plus size={14} style={{ cursor: 'pointer' }} />
               </div>
+            )}
 
-              {/* Snapshots Git Atomiques */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 style={{ fontSize: '1rem', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <GitBranch size={16} /> Snapshots Git Atomiques (`THE-04`)
-                  </h3>
-                  <button
-                    onClick={handleCreateSnapshot}
-                    style={{ background: 'var(--surface-elevated)', color: 'var(--gold)', border: '1px solid var(--gold)', borderRadius: '4px', padding: '4px 10px', fontSize: '0.8rem', fontWeight: 600 }}
-                  >
-                    + Créer Snapshot
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto' }}>
-                  {snapshots.length === 0 ? (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Aucun snapshot enregistré.</span>
-                  ) : (
-                    snapshots.map((s) => (
-                      <div key={s.commit_hash} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '6px 8px', background: 'var(--surface-elevated)', borderRadius: '4px' }}>
-                        <code>{s.commit_hash}</code>
-                        <span style={{ color: 'var(--text-muted)' }}>{s.message}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Ingestion Markdown & Création de Théâtre */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-              <form onSubmit={handleIngestMarkdown} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1rem', color: 'var(--gold)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={16} /> Ingestion Wiki & Anti-Doublons (`WIK-04` / `WIK-06`)
-                </h3>
-                <input
-                  type="text"
-                  value={newWikiTitle}
-                  onChange={(e) => setNewWikiTitle(e.target.value)}
-                  placeholder="Titre de l'entité (ex: Covenant de Doissetep)"
-                  style={{ width: '100%', marginBottom: '8px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px', borderRadius: '4px' }}
-                />
-                <textarea
-                  value={newWikiBody}
-                  onChange={(e) => setNewWikiBody(e.target.value)}
-                  placeholder="Contenu Markdown (supporte <!-- LOCKED_BY_USER --> et :::secret)..."
-                  rows={3}
-                  style={{ width: '100%', marginBottom: '8px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px', borderRadius: '4px' }}
-                />
-                <button type="submit" style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '4px', padding: '8px 14px', fontWeight: 700 }}>
-                  Ingérer & Indexer dans Tantivy/KG
-                </button>
-                {ingestFeedback && (
-                  <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--green)' }}>{ingestFeedback}</div>
-                )}
-              </form>
-
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1rem', color: 'var(--gold)', marginBottom: '12px' }}>Conteneurs `.dramatis` Disponibles</h3>
-                <form onSubmit={handleCreateTheater} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  <input
-                    type="text"
-                    value={newTheaterName}
-                    onChange={(e) => setNewTheaterName(e.target.value)}
-                    placeholder="Nouveau Théâtre..."
-                    style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px', borderRadius: '4px' }}
-                  />
-                  <button type="submit" disabled={loading} style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '4px', padding: '0 14px', fontWeight: 700 }}>
-                    <Plus size={16} />
-                  </button>
-                  <button type="button" onClick={loadTheaters} style={{ background: 'var(--surface-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '4px', padding: '0 10px' }}>
-                    <RefreshCw size={14} />
-                  </button>
-                </form>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {theaters.map((t) => (
-                    <div
-                      key={t}
-                      onClick={() => setSelectedTheater(t)}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {theaters.map((th) => {
+                const isSelected = th === selectedTheater;
+                return (
+                  <div key={th}>
+                    <button
+                      onClick={() => {
+                        setSelectedTheater(th);
+                        setActiveWorkspaceView('notebook');
+                      }}
                       style={{
-                        cursor: 'pointer',
-                        background: selectedTheater === t ? 'var(--surface-elevated)' : 'transparent',
-                        border: selectedTheater === t ? '1px solid var(--gold)' : '1px solid var(--border)',
-                        borderRadius: '6px',
-                        padding: '10px 12px',
+                        width: '100%',
                         display: 'flex',
+                        alignItems: 'center',
                         justifyContent: 'space-between',
-                        alignItems: 'center'
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        background: isSelected ? 'var(--surface-elevated)' : 'transparent',
+                        color: isSelected ? 'var(--gold)' : 'var(--text-muted)',
+                        fontSize: '0.85rem',
+                        fontWeight: isSelected ? 600 : 400,
+                        border: isSelected ? '1px solid var(--border)' : '1px solid transparent'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FolderOpen size={16} color="var(--gold)" />
-                        <span style={{ fontWeight: 600 }}>{t}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                        <FolderOpen size={16} color={isSelected ? 'var(--gold)' : 'var(--text-dim)'} />
+                        {!isSidebarCollapsed && (
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {th.replace('.dramatis', '')}
+                          </span>
+                        )}
                       </div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--green)' }}>SQLite + Tantivy OK</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                      {!isSidebarCollapsed && isSelected && (
+                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--gold)' }} />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        )}
 
-        {activeTab === 'rules' && (
-          <div>
-            <h2 style={{ fontSize: '1.6rem', color: 'var(--amber)', marginBottom: '6px' }}>
-              ⚙️ RulesLab — Moteur Déterministe, Rhai-SQL, Edge & Monte-Carlo
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px' }}>
-              Monopole mathématique Rust (`dramatis-machina`) : aucun calcul de dés ou de seuils n'est délégué au LLM.
-            </p>
+          <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0 4px' }} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              {/* Lanceur de dés universel & expressions avancées */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1.05rem', marginBottom: '12px', color: 'var(--amber)' }}>
-                  🎲 Dés Spécialisés & Expressions (4d6kh3, 2d20kl1, 1d100&lt;=45)
-                </h3>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+          {/* STRATE 3 : Canaux Épinglés (StageChannels) */}
+          {!isSidebarCollapsed && (
+            <div>
+              <div style={{
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: 'var(--text-dim)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                padding: '0 12px 8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <span>Canaux & Scènes</span>
+                <Pin size={12} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                {pinnedChannels.map((ch) => (
+                  <button
+                    key={ch.id}
+                    onClick={() => setActiveChannel(ch.name)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      color: activeChannel === ch.name ? 'var(--text-main)' : 'var(--text-dim)',
+                      background: activeChannel === ch.name ? 'rgba(255, 255, 255, 0.05)' : 'transparent'
+                    }}
+                  >
+                    <Hash size={14} color={ch.type === 'whisper' ? 'var(--purple)' : ch.type === 'net' ? 'var(--teal)' : 'var(--amber)'} />
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Sidebar : Statut Système & Rôle MJ */}
+        <div style={{
+          padding: '12px 16px',
+          borderTop: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.75rem',
+          color: 'var(--text-dim)'
+        }}>
+          {!isSidebarCollapsed ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)' }} />
+              <span>dramatisd • MJ (Omni)</span>
+            </div>
+          ) : (
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', margin: 'auto' }} />
+          )}
+          {!isSidebarCollapsed && <Settings size={14} style={{ cursor: 'pointer' }} />}
+        </div>
+      </aside>
+
+      {/* =========================================================================
+          2. CANEVAS CENTRAL FLUIDE (« THEATER NOTEBOOK HUB »)
+         ========================================================================= */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', position: 'relative' }}>
+        
+        {/* Barre Supérieure du Canevas */}
+        <header style={{
+          height: '52px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          background: 'rgba(11, 12, 16, 0.8)',
+          backdropFilter: 'blur(8px)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Théâtre actif :</span>
+            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>{selectedTheater}</span>
+            <span style={{
+              fontSize: '0.7rem',
+              padding: '2px 8px',
+              borderRadius: '9999px',
+              background: 'rgba(16, 185, 129, 0.1)',
+              color: 'var(--green)',
+              border: '1px solid rgba(16, 185, 129, 0.3)'
+            }}>
+              strict_local
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '9999px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                color: 'var(--gold)',
+                fontSize: '0.8rem',
+                fontWeight: 600
+              }}
+            >
+              <Database size={14} />
+              <span>{getSourceCount()} sources & inspecteur</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Zone de contenu principale selon la vue active */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          
+          {/* VUE 1 : HUB NOTEBOOK / SCÈNE (Style Gemini "Lilinette" + Omni-Composer AnythingLLM) */}
+          {activeWorkspaceView === 'notebook' && (
+            <div style={{ width: '100%', maxWidth: '780px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              
+              {/* Context Hero Header (L'emblème, le titre et le badge de sources) */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center', paddingTop: '16px' }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'rgba(212, 175, 55, 0.1)',
+                  border: '1px solid var(--gold-glow)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--gold)'
+                }}>
+                  <Sparkles size={24} />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <h1 style={{
+                    fontFamily: 'var(--font-title)',
+                    fontSize: '2rem',
+                    fontWeight: 700,
+                    color: 'var(--text-main)',
+                    letterSpacing: '0.02em'
+                  }}>
+                    {selectedTheater.replace('.dramatis', '')}
+                  </h1>
+
+                  <span
+                    onClick={() => setIsDrawerOpen(true)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '4px 12px',
+                      borderRadius: '9999px',
+                      background: 'rgba(0, 240, 255, 0.1)',
+                      color: 'var(--teal)',
+                      border: '1px solid rgba(0, 240, 255, 0.3)',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <BookOpen size={12} />
+                    {getSourceCount()} sources
+                  </span>
+                </div>
+
+                <p style={{ fontFamily: 'var(--font-serif)', fontSize: '1.05rem', color: 'var(--text-muted)', fontStyle: 'italic', maxWidth: '520px' }}>
+                  « Narration vs Machina : La plume pour l'esprit, l'acier pour la loi. »
+                </p>
+              </div>
+
+              {/* Omni-Prompt Pill-Bar (Capsule ultra-épurée avec sélecteur intégré) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                <form
+                  onSubmit={handleOmniSubmit}
+                  style={{
+                    background: 'var(--surface-pill)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '28px',
+                    padding: '8px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                    transition: 'border-color 0.2s ease'
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setIsDrawerOpen(true)}
+                    style={{ padding: '6px', borderRadius: '50%', color: 'var(--text-muted)' }}
+                    title="Ajouter une source ou inspecter"
+                  >
+                    <Plus size={18} />
+                  </button>
+
                   <input
                     type="text"
-                    value={diceExpr}
-                    onChange={(e) => setDiceExpr(e.target.value)}
-                    style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px', borderRadius: '4px', fontFamily: 'monospace' }}
+                    value={omniInput}
+                    onChange={(e) => setOmniInput(e.target.value)}
+                    placeholder={`Demander à Dramatis (${activeAgentEngine})...`}
+                    style={{
+                      flex: 1,
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-main)',
+                      fontSize: '0.95rem'
+                    }}
                   />
-                  <button onClick={rollExpressionDice} style={{ background: 'var(--amber)', color: '#000', border: 'none', borderRadius: '4px', padding: '8px 14px', fontWeight: 700 }}>
-                    Évaluer Expression
+
+                  {/* Sélecteur de rôle / moteur intégré dans la capsule (type Gemini) */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={activeAgentEngine}
+                      onChange={(e) => setActiveAgentEngine(e.target.value as any)}
+                      style={{
+                        background: 'var(--surface-elevated)',
+                        color: 'var(--gold)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '9999px',
+                        padding: '4px 10px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="archivist">Archiviste • RAG</option>
+                      <option value="arbiter">Légiste • Dés/Rhai</option>
+                      <option value="director">Metteur en Scène</option>
+                      <option value="montecarlo">Simulateur (10k)</option>
+                    </select>
+
+                    <button
+                      type="submit"
+                      style={{
+                        width: '34px',
+                        height: '34px',
+                        borderRadius: '50%',
+                        background: omniInput.trim() ? 'var(--gold)' : 'var(--surface-elevated)',
+                        color: omniInput.trim() ? '#000' : 'var(--text-dim)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      disabled={!omniInput.trim()}
+                    >
+                      <Send size={15} />
+                    </button>
+                  </div>
+                </form>
+
+                {/* Pilules d'Actions Rapides */}
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => {
+                      setOmniInput('Pilum de Feu');
+                      setActiveAgentEngine('archivist');
+                    }}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '9999px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid var(--border-subtle)',
+                      fontSize: '0.75rem',
+                      color: 'var(--text-muted)'
+                    }}
+                  >
+                    🔍 Rechercher "Pilum de Feu"
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setOmniInput('4d6kh3+2');
+                      setActiveAgentEngine('arbiter');
+                    }}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '9999px',
+                      background: 'rgba(255, 159, 28, 0.08)',
+                      border: '1px solid rgba(255, 159, 28, 0.2)',
+                      fontSize: '0.75rem',
+                      color: 'var(--amber)'
+                    }}
+                  >
+                    🎲 Lancer 4d6kh3+2
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setOmniInput('Sort d\'attaque hermétique');
+                      setActiveAgentEngine('director');
+                    }}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '9999px',
+                      background: 'rgba(168, 85, 247, 0.08)',
+                      border: '1px solid rgba(168, 85, 247, 0.2)',
+                      fontSize: '0.75rem',
+                      color: 'var(--purple)'
+                    }}
+                  >
+                    🎭 Résoudre Intention Scénique
                   </button>
                 </div>
-
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', alignItems: 'flex-end' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Dés</label>
-                    <input type="number" value={diceCount} onChange={(e) => setDiceCount(Number(e.target.value))} style={{ width: '60px', padding: '6px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', borderRadius: '4px' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Faces</label>
-                    <input type="number" value={diceSides} onChange={(e) => setDiceSides(Number(e.target.value))} style={{ width: '60px', padding: '6px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', borderRadius: '4px' }} />
-                  </div>
-                  <button onClick={rollStandardDice} style={{ background: 'var(--surface-elevated)', color: 'var(--amber)', border: '1px solid var(--amber)', borderRadius: '4px', padding: '6px 10px', fontWeight: 600 }}>NdS+M</button>
-                  <button onClick={rollShadowrunPool} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 10px', fontWeight: 700 }}>Pool SR6</button>
-                  <button onClick={rollArsMagicaStress} style={{ background: 'var(--purple)', color: '#FFF', border: 'none', borderRadius: '4px', padding: '6px 10px', fontWeight: 700 }}>Stress Die</button>
-                  <button onClick={runMonteCarlo} style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 10px', fontWeight: 700 }}>Monte-Carlo (10k)</button>
-                </div>
-
-                {rollResult && (
-                  <div style={{ padding: '10px', background: 'var(--surface-elevated)', border: '1px solid var(--amber)', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--amber)', marginBottom: '10px' }}>
-                    {rollResult}
-                  </div>
-                )}
-
-                {mcSummary && (
-                  <div style={{ padding: '10px', background: 'var(--surface-elevated)', borderRadius: '4px', fontSize: '0.8rem' }}>
-                    <strong>Monte-Carlo ({mcSummary.iterations} itérations vs Seuil 12)</strong> : Probabilité de Succès = <span style={{ color: 'var(--green)', fontWeight: 700 }}>{(mcSummary.success_probability * 100).toFixed(1)}%</span> | Moyenne = {mcSummary.mean.toFixed(2)} (Min {mcSummary.min}, Max {mcSummary.max})
-                  </div>
-                )}
               </div>
 
-              {/* Sandbox Rhai-SQL & Économie Tactique Edge */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                  <h3 style={{ fontSize: '1.05rem', marginBottom: '10px', color: 'var(--amber)' }}>
-                    📜 Sandbox `Rhai` & Pont `tables.sqlite` (`MAC-03`)
-                  </h3>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                    <input
-                      type="text"
-                      value={rhaiScript}
-                      onChange={(e) => setRhaiScript(e.target.value)}
-                      style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '8px', borderRadius: '4px', fontFamily: 'monospace' }}
-                    />
-                    <button onClick={runRhaiEval} style={{ background: 'var(--amber)', color: '#000', border: 'none', borderRadius: '4px', padding: '8px 14px', fontWeight: 700 }}>
-                      Exécuter Rhai
-                    </button>
+              {/* Rendu dynamique du dernier résultat */}
+              {archivistAnswer && (
+                <div style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
+                    <BookOpen size={14} />
+                    <span>Réponse de l'Archiviste (RAG Translingue)</span>
                   </div>
-                  {rhaiOutput && <div style={{ fontSize: '0.85rem', fontFamily: 'monospace', color: 'var(--green)' }}>{rhaiOutput}</div>}
+                  <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
+                    {archivistAnswer}
+                  </div>
+                </div>
+              )}
+
+              {rollResult && (
+                <div style={{
+                  background: 'var(--surface)',
+                  border: '1px solid rgba(255, 159, 28, 0.3)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--amber)', fontWeight: 600 }}>
+                    <Dices size={14} />
+                    <span>Verdict Mécanique Déterministe (`Machina`)</span>
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                    Expression : {rollResult.expression} ➔ <strong>Total : {rollResult.total}</strong> (Dés : [{rollResult.all_rolls?.join(', ')}])
+                  </div>
+                </div>
+              )}
+
+              {stageVerdict && (
+                <div style={{
+                  background: 'var(--surface)',
+                  border: '1px solid rgba(168, 85, 247, 0.3)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--purple)', fontWeight: 600 }}>
+                    <Sparkles size={14} />
+                    <span>Porte de Résolution Déterministe (Metteur en Scène)</span>
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
+                    {stageVerdict}
+                  </div>
+                </div>
+              )}
+
+              {/* Discussions & Séances précédentes (Historique horodaté style Gemini) */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+                <div style={{
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  color: 'var(--text-dim)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <span>Discussions & Séances précédentes</span>
+                  {stageLogs.length > 0 && (
+                    <button
+                      onClick={handleStageRewind}
+                      style={{
+                        fontSize: '0.75rem',
+                        color: 'var(--amber)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                      title="Annuler le dernier tour"
+                    >
+                      <RotateCcw size={12} />
+                      Rewind 1 Tour
+                    </button>
+                  )}
                 </div>
 
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                  <h3 style={{ fontSize: '1.05rem', marginBottom: '10px', color: 'var(--amber)' }}>
-                    ⚡ Économie Tactique Dynamique — Calculateur d'Edge (`MAC-04`)
-                  </h3>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '0.8rem' }}>AR:</span>
-                    <input type="number" value={edgeAr} onChange={(e) => setEdgeAr(Number(e.target.value))} style={{ width: '60px', padding: '6px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', borderRadius: '4px' }} />
-                    <span style={{ fontSize: '0.8rem' }}>DR:</span>
-                    <input type="number" value={edgeDr} onChange={(e) => setEdgeDr(Number(e.target.value))} style={{ width: '60px', padding: '6px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', borderRadius: '4px' }} />
-                    <button onClick={runEdgeEval} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 12px', fontWeight: 700 }}>
-                      Calculer Edge
-                    </button>
-                  </div>
-                  {edgeResult && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
-                      Avantage net : <strong>{edgeResult.ar_advantage}</strong> ➔ Edge accordé à : <strong style={{ color: 'var(--gold)' }}>{edgeResult.edge_awarded_to || 'Aucun'}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {stageLogs.length > 0 ? (
+                    stageLogs.slice(-5).reverse().map((log: any, idx: number) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ color: 'var(--gold)' }}>🎬</span>
+                          <span>{log.actor_id || 'Événement'} : {log.action_type || 'Action'}</span>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Aujourd'hui</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{
+                      padding: '16px',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px dashed var(--border)',
+                      textAlign: 'center',
+                      color: 'var(--text-dim)',
+                      fontSize: '0.85rem'
+                    }}>
+                      Aucune session précédente enregistrée dans ce Théâtre. Saisissez une intention ci-dessus pour débuter.
                     </div>
                   )}
                 </div>
               </div>
+
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'persona' && (
-          <div>
-            <h2 style={{ fontSize: '1.6rem', color: 'var(--teal)', marginBottom: '6px' }}>
-              🛡️ PersonaForge — Triple Facette (`json`/`md`/`psyche`), Création, Artificer & Exports
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px' }}>
-              Assistants de création déterministes (`PER-02`), Essence au centième (`PER-03`), Atelier Hermétique (`PER-06`) et Handouts expurgés (`THE-06`).
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
-                <h3 style={{ fontSize: '0.95rem', color: 'var(--teal)', marginBottom: '8px' }}>Priorités SR6 A–E & Essence (`PER-02/03`)</h3>
-                <button onClick={runSr6Validation} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 12px', fontWeight: 700, marginBottom: '8px' }}>
-                  Valider Samouraï / Éveillé
-                </button>
-                {srCreationResult && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>{srCreationResult.summary}</div>
-                )}
+          {/* VUE 2 : BIBLIOTHÈQUE & WIKI */}
+          {activeWorkspaceView === 'wiki' && (
+            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.4rem', color: 'var(--gold)' }}>
+                  Bibliothèque & Encyclopédie (/01_wiki)
+                </h2>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Protection LOCKED_BY_USER active</span>
               </div>
 
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
-                <h3 style={{ fontSize: '0.95rem', color: 'var(--teal)', marginBottom: '8px' }}>Atelier `Artificer` Hermétique (`PER-06`)</h3>
-                <button onClick={runArtificerEval} style={{ background: 'var(--purple)', color: '#FFF', border: 'none', borderRadius: '4px', padding: '6px 12px', fontWeight: 700, marginBottom: '8px' }}>
-                  Calculer "Pilum of Fire" (CrIg 20)
-                </button>
-                {artificerResult && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>{artificerResult.explanation}</div>
-                )}
+              {/* Formulaire d'ingestion Markdown */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Rédiger ou ingérer une note de Lore</h3>
+                <input
+                  type="text"
+                  placeholder="Titre de la fiche (ex: L'Alliance de Val Negra)"
+                  value={newWikiTitle}
+                  onChange={(e) => setNewWikiTitle(e.target.value)}
+                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px' }}
+                />
+                <textarea
+                  rows={6}
+                  placeholder="Contenu en Markdown avec sections <!-- LOCKED_BY_USER --> ou :::secret..."
+                  value={newWikiBody}
+                  onChange={(e) => setNewWikiBody(e.target.value)}
+                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button
+                    onClick={async () => {
+                      if (!newWikiTitle || !newWikiBody) return;
+                      const slug = newWikiTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                      const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          doc_id: slug,
+                          title: newWikiTitle,
+                          category: 'lieux',
+                          markdown_content: newWikiBody
+                        })
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setIngestFeedback(`Indexé : ${data.doc_id} (${data.sections_extracted} sections)`);
+                        setNewWikiTitle('');
+                        setNewWikiBody('');
+                      }
+                    }}
+                    style={{
+                      background: 'var(--gold)',
+                      color: '#000',
+                      fontWeight: 600,
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    Enregistrer & Indexer RAG
+                  </button>
+                </div>
+                {ingestFeedback && <div style={{ fontSize: '0.8rem', color: 'var(--green)' }}>{ingestFeedback}</div>}
               </div>
 
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
-                <h3 style={{ fontSize: '0.95rem', color: 'var(--teal)', marginBottom: '8px' }}>Export Handout Expurgé `:::secret` (`THE-06`)</h3>
-                <button onClick={runHandoutExport} style={{ background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '4px', padding: '6px 12px', fontWeight: 700, marginBottom: '8px' }}>
-                  Générer Vue Joueur
+              {/* Handout Export */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Générateur de Handouts Joueur (Filtrage :::secret)</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Générez un extrait sain sans secrets MJ pour distribution physique ou export HTML.
+                </p>
+                <button
+                  onClick={async () => {
+                    const res = await fetch('/api/export/handout', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        title: 'Briefing : Le Pacte de Val Negra',
+                        markdown_content: 'Rapport public aux mages.\n:::secret\nNote MJ : Le Chambellan est sous contrôle mental.\n:::\nBonne chance.',
+                        role: 'player',
+                        actor_id: 'lucius'
+                      })
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setHandoutHtml(data.sanitized_markdown);
+                    }
+                  }}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    color: 'var(--teal)',
+                    fontSize: '0.85rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Tester l'Export Joueur
                 </button>
                 {handoutHtml && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>"{handoutHtml}"</div>
+                  <pre style={{ background: 'var(--canvas)', padding: '12px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-main)', border: '1px solid var(--border)' }}>
+                    {handoutHtml}
+                  </pre>
                 )}
               </div>
             </div>
+          )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-              {personae.map((p) => (
-                <div key={p.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <h3 style={{ fontSize: '1.1rem', color: 'var(--teal)' }}>{p.name}</h3>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>{p.theater_system}</span>
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                    ID: <code>{p.id}</code> | Essence: {p.essence?.toFixed(2) ?? 'N/A'}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--green)' }}>
-                    Triple facette active : `{p.id}.persona.json`, `.md`, `.psyche.json`
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          {/* VUE 3 : RULESLAB (MACHINA & PROBABILITÉS) */}
+          {activeWorkspaceView === 'rules' && (
+            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.4rem', color: 'var(--amber)' }}>
+                Atelier Mécanique & Sandbox Rhai (`dramatis-machina`)
+              </h2>
 
-        {activeTab === 'stage' && (
-          <div>
-            <h2 style={{ fontSize: '1.6rem', color: 'var(--purple)', marginBottom: '6px' }}>
-              🎲 StageTable — Porte Déterministe, Interception `StageChannels` & Event Sourcing
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px' }}>
-              Résolution obligatoire `[Intention Mécanique]` ➔ Légiste ➔ Journal immuable `session_logs.jsonl` avec console MJ **Rewind / Dés Physiques**.
-            </p>
+              {/* Console Rhai */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Évaluation de Formule Rhai sandboxée</h3>
+                <textarea
+                  rows={3}
+                  value={rhaiScript}
+                  onChange={(e) => setRhaiScript(e.target.value)}
+                  style={{ background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
+                />
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/theaters/${selectedTheater}/machina/eval`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ script: rhaiScript })
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setRhaiOutput(`Résultat : ${data.result}`);
+                    }
+                  }}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'var(--amber)',
+                    color: '#000',
+                    fontWeight: 600,
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Exécuter dans la Sandbox
+                </button>
+                {rhaiOutput && <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--green)' }}>{rhaiOutput}</div>}
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              {/* Porte de Résolution Déterministe & Dés Physiques */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1.05rem', color: 'var(--purple)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={16} /> Porte de Résolution Déterministe (`STG-05` / `STG-09`)
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                  <input type="text" value={intentionActor} onChange={(e) => setIntentionActor(e.target.value)} placeholder="Acteur" style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '6px 10px', borderRadius: '4px' }} />
-                  <input type="text" value={intentionAction} onChange={(e) => setIntentionAction(e.target.value)} placeholder="Intention Mécanique" style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '6px 10px', borderRadius: '4px' }} />
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input type="text" value={intentionExpr} onChange={(e) => setIntentionExpr(e.target.value)} placeholder="Formule (ex: 1d10+15)" style={{ flex: 1, background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace' }} />
-                    <input type="number" value={targetDefense} onChange={(e) => setTargetDefense(Number(e.target.value))} placeholder="Défense" style={{ width: '80px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: '#FFF', padding: '6px 10px', borderRadius: '4px' }} />
-                    <input type="text" value={physicalDiceOverride} onChange={(e) => setPhysicalDiceOverride(e.target.value)} placeholder="Dé Physique (opt)" style={{ width: '120px', background: 'var(--surface-elevated)', border: '1px solid var(--gold)', color: 'var(--gold)', padding: '6px 10px', borderRadius: '4px' }} />
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={handleResolveStageIntention} style={{ background: 'var(--purple)', color: '#FFF', border: 'none', borderRadius: '4px', padding: '8px 14px', fontWeight: 700 }}>
-                      Résoudre & Journaliser
-                    </button>
-                    <button onClick={handleStageRewind} style={{ background: 'var(--surface-elevated)', color: 'var(--amber)', border: '1px solid var(--amber)', borderRadius: '4px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <RotateCcw size={14} /> Rewind (-1 Tour)
-                    </button>
-                    <button onClick={handleTestInterception} style={{ background: 'var(--surface-elevated)', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: '4px', padding: '8px 12px' }}>
-                      Tester Interception Snoop
-                    </button>
-                  </div>
-                </div>
-
-                {stageVerdict && (
-                  <div style={{ padding: '10px', background: 'var(--surface-elevated)', borderLeft: '3px solid var(--green)', fontSize: '0.85rem', marginBottom: '8px' }}>
-                    <CheckCircle2 size={14} style={{ display: 'inline', marginRight: '6px', color: 'var(--green)' }} />
-                    {stageVerdict}
-                  </div>
-                )}
-
-                {interceptionVerdict && (
-                  <div style={{ padding: '10px', background: 'var(--surface-elevated)', borderLeft: '3px solid var(--amber)', fontSize: '0.85rem' }}>
-                    <AlertTriangle size={14} style={{ display: 'inline', marginRight: '6px', color: 'var(--amber)' }} />
-                    {interceptionVerdict}
+              {/* Simulateur Monte-Carlo */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Simulateur Monte-Carlo (10 000 Itérations)</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Test de résistance statistique : 3d6+2 contre seuil de difficulté 12.
+                </p>
+                <button
+                  onClick={async () => {
+                    const res = await fetch('/api/machina/simulate/standard', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        dice_count: 3,
+                        dice_sides: 6,
+                        modifier: 2,
+                        target_threshold: 12,
+                        iterations: 10000
+                      })
+                    });
+                    if (res.ok) setMcSummary(await res.json());
+                  }}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    color: 'var(--amber)',
+                    fontWeight: 600,
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Lancer 10 000 itérations
+                </button>
+                {mcSummary && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', background: 'var(--canvas)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    Taux de succès : {(mcSummary.success_rate * 100).toFixed(1)}% | Moyenne : {mcSummary.mean.toFixed(2)} | Min/Max : {mcSummary.min}/{mcSummary.max}
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
-              {/* Journal d'Event Sourcing session_logs.jsonl */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px' }}>
-                <h3 style={{ fontSize: '1.05rem', color: 'var(--purple)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Clock size={16} /> Journal Immuable `session_logs.jsonl` (`STG-06`)
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
-                  {stageLogs.length === 0 ? (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Aucun événement de scène enregistré pour ce Théâtre.</span>
-                  ) : (
-                    stageLogs.map((entry) => (
-                      <div key={entry.sequence_id} style={{ padding: '8px 10px', background: 'var(--surface-elevated)', borderRadius: '4px', fontSize: '0.8rem', borderLeft: '2px solid var(--purple)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
-                          <span>#{entry.sequence_id} — {entry.actor_id} ({entry.channel})</span>
-                          <span>{entry.event_type}</span>
-                        </div>
-                        <div style={{ marginTop: '4px', color: '#FFF' }}>{entry.summary}</div>
+          {/* VUE 4 : PERSONAFORGE */}
+          {activeWorkspaceView === 'persona' && (
+            <div style={{ width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.4rem', color: 'var(--green)' }}>
+                PersonaForge & Atelier Artificer
+              </h2>
+
+              {/* Fiches de personnages chargées */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                {personae.map((p, idx) => (
+                  <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--gold)' }}>{p.name}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{p.id}</span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      Maison/Archétype : {p.house || p.archetype || 'Aventurier'}
+                    </div>
+                    {p.essence && (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+                        Essence : {p.essence} / 6.00
                       </div>
-                    ))
-                  )}
-                </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Atelier Artificer */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Atelier d'Artisanat & Conception Hermétique (Artificer)</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Validation déterministe d'un Pilum de Feu (Creo Ignem 20) selon le Total de Laboratoire.
+                </p>
+                <button
+                  onClick={async () => {
+                    const res = await fetch('/api/persona/artificer', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        spell_or_item_name: 'Pilum of Fire',
+                        technique_name: 'Creo',
+                        technique_score: 10,
+                        form_name: 'Ignem',
+                        form_score: 12,
+                        intelligence_score: 3,
+                        magic_theory_score: 5,
+                        aura_modifier: 4,
+                        lab_quality_modifier: 2,
+                        base_guideline_level: 10,
+                        range_magnitudes: 2,
+                        duration_magnitudes: 0,
+                        target_magnitudes: 0
+                      })
+                    });
+                    if (res.ok) setArtificerResult(await res.json());
+                  }}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'var(--green)',
+                    color: '#000',
+                    fontWeight: 600,
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Calculer Total de Labo & Niveau Final
+                </button>
+                {artificerResult && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', background: 'var(--canvas)', padding: '12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    Niveau calculé : {artificerResult.calculated_spell_level} | Total Labo : {artificerResult.lab_total} | Surplus : {artificerResult.seasonal_surplus_progress}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+        </div>
       </main>
+
+      {/* =========================================================================
+          3. TIROIR D'INSPECTION TACTIQUE & SOURCES (Pan-Droit Repliable)
+         ========================================================================= */}
+      {isDrawerOpen && (
+        <aside style={{
+          width: '320px',
+          background: 'var(--sidebar-bg)',
+          borderLeft: '1px solid var(--border)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 20
+        }}>
+          <div style={{
+            height: '52px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold)' }}>
+              Sources & Inspecteur
+            </span>
+            <button
+              onClick={() => setIsDrawerOpen(false)}
+              style={{ color: 'var(--text-dim)', fontSize: '1.2rem' }}
+            >
+              ×
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Dé Physique Override MJ */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                Dés Physiques & Override MJ
+              </span>
+              <input
+                type="text"
+                placeholder="Forcer un résultat de dé physique..."
+                value={physicalDiceOverride}
+                onChange={(e) => setPhysicalDiceOverride(e.target.value)}
+                style={{
+                  background: 'var(--surface-elevated)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  fontSize: '0.8rem'
+                }}
+              />
+            </div>
+
+            {/* Snapshots Git */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Snapshots Git ({snapshots.length})
+                </span>
+                <button
+                  onClick={async () => {
+                    await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ message: `Snapshot manuel ${new Date().toLocaleTimeString()}` })
+                    });
+                    loadTheaterContext(selectedTheater);
+                  }}
+                  style={{ fontSize: '0.7rem', color: 'var(--gold)' }}
+                >
+                  + Nouveau
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {snapshots.slice(0, 4).map((s, idx) => (
+                  <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>{s.message}</div>
+                    <div style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{s.commit_hash.slice(0, 7)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Personae Acteurs */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                Acteurs du Théâtre ({personae.length})
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {personae.map((p, idx) => (
+                  <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ color: 'var(--gold)', fontWeight: 600 }}>{p.name}</div>
+                    <div style={{ color: 'var(--text-dim)' }}>{p.id}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </aside>
+      )}
+
     </div>
   );
 }
