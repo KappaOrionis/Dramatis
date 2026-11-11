@@ -708,14 +708,35 @@ async fn get_theater_signals_handler(
         _ => "Standard Deterministic VTT Matrix".to_string(),
     };
 
+    let current_season_fr = match ws.manifest.chronos.current_season.as_deref() {
+        Some("Spring") => "Printemps",
+        Some("Summer") => "Été",
+        Some("Autumn") => "Automne",
+        Some("Winter") => "Hiver",
+        Some(other) => other,
+        None => "Non défini",
+    };
+
+    let year_str = match ws.manifest.chronos.current_year {
+        Some(y) => format!(" (An {})", y),
+        None => String::new(),
+    };
+
+    let chronos_display = format!("{}{}", current_season_fr, year_str);
+
+    let sources_summary = if sources_count == 0 {
+        "Aucune source documentaire injectée. L'assistant fonctionne en attente de documents canoniques.".to_string()
+    } else {
+        format!("{} document(s) canonique(s) analysé(s) et indexé(s) dans le bac à sable.", sources_count)
+    };
+
     let agent_curator_summary = format!(
-        "Univers '{}' [Système: {}]. Géré par le pôle Régie (Archiviste, Scribe, Légiste). Moteur temps: Saison {} / Mode de confidentialité: {}. {} source(s) canonique(s) ingérée(s), {} entrée(s) de lore au Wiki sous protection LOCKED_BY_USER.",
+        "Univers '{}' gouverné par les règles '{}'. {}\nLe carnet compte {} note(s) rédigée(s) et {} personnage(s) enregistré(s).",
         ws.manifest.name,
         system_id,
-        format!("{:?}", ws.manifest.chronos.current_season),
-        privacy,
-        sources_count,
-        wiki_count
+        sources_summary,
+        wiki_count,
+        personae_count
     );
 
     Ok(Json(TheaterSignalSheet {
@@ -729,7 +750,7 @@ async fn get_theater_signals_handler(
         personae_count,
         tables_count,
         plays_count,
-        current_season: format!("{:?}", ws.manifest.chronos.current_season),
+        current_season: chronos_display,
         aura_or_matrix,
         agent_curator_summary,
     }))

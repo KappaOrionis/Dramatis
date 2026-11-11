@@ -836,17 +836,18 @@ export default function App() {
         {/* Contenu de l'étape active */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           
-          {/* ÉTAPE 1 : PRÉSENTATION DE L'UNIVERS */}
+          {/* ÉTAPE 1 : PRÉSENTATION DE L'UNIVERS (FICHE SIGNALÉTIQUE HARMONIEUSE OR/NOCTURNE) */}
           {activeStep === 'signal' && signalSheet && (
-            <div style={{ width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
               
+              {/* En-tête */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontSize: '0.85rem', fontWeight: 600 }}>
-                    <Compass size={16} />
-                    <span>CARNET DE JEU</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    <Compass size={15} />
+                    <span>Fiche Signalétique d'Univers</span>
                   </div>
-                  <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2rem', color: 'var(--text-main)', marginTop: '4px' }}>
+                  <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.1rem', color: 'var(--text-main)', marginTop: '4px', letterSpacing: '0.02em' }}>
                     {signalSheet.name}
                   </h1>
                 </div>
@@ -857,12 +858,13 @@ export default function App() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
-                    padding: '8px 16px',
+                    padding: '8px 18px',
                     borderRadius: '8px',
                     background: 'var(--gold)',
                     color: '#000',
                     fontWeight: 600,
-                    fontSize: '0.85rem'
+                    fontSize: '0.85rem',
+                    boxShadow: '0 4px 12px rgba(212, 175, 55, 0.2)'
                   }}
                 >
                   <span>Consulter les Sources</span>
@@ -870,69 +872,139 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Résumé de l'univers */}
+              {/* Synthèse textuelle dans un cadre épuré aux tons or feutré */}
               <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
+                background: 'rgba(212, 175, 55, 0.03)',
+                border: '1px solid rgba(212, 175, 55, 0.15)',
                 borderRadius: '12px',
                 padding: '20px',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '10px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
                   <Sparkles size={14} />
-                  <span>Synthèse de l'Univers</span>
+                  <span>État et Description du Carnet</span>
                 </div>
-                <p style={{ fontFamily: 'var(--font-serif)', fontSize: '1.05rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
-                  {signalSheet.agent_curator_summary.replace("sous protection LOCKED_BY_USER", "protégées")}
+                <p style={{ fontFamily: 'var(--font-serif)', fontSize: '1.05rem', lineHeight: '1.6', color: 'var(--text-main)', whiteSpace: 'pre-line' }}>
+                  {signalSheet.agent_curator_summary}
                 </p>
               </div>
 
-              {/* Grille épurée */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Système de Règles</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--amber)', marginTop: '4px' }}>{signalSheet.system_preset}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>{signalSheet.aura_or_matrix}</div>
+              {/* Table structurée d'Informations Clés (Tons de la couleur principale Or & Nocturne) */}
+              <div style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: '12px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  padding: '12px 20px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderBottom: '1px solid var(--border)',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  color: 'var(--text-dim)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  Paramètres Canoniques & État Système
                 </div>
 
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Chronologie en Jeu</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--teal)', marginTop: '4px' }}>Saison {signalSheet.current_season}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>Suivi temporel actif</div>
-                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {/* Ligne Système */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>Système de Règles</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Modèle mécanique et résolution des dés</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>{signalSheet.system_preset || 'Non renseigné'}</span>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{signalSheet.aura_or_matrix}</div>
+                    </div>
+                  </div>
 
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Confidentialité</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--green)', marginTop: '4px' }}>Local Strict</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>Vos données restent sur votre machine</div>
+                  {/* Ligne Chronologie */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>Chronologie & Saison</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Temporalité fictionnelle en cours dans l'univers</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>{signalSheet.current_season || 'Aucune saison définie'}</span>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Cycle temporel actif</div>
+                    </div>
+                  </div>
+
+                  {/* Ligne Confidentialité */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>Mode de Confidentialité</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Politique d'isolation réseau et d'exécution locale</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{
+                        fontSize: '0.75rem',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        background: 'rgba(212, 175, 55, 0.1)',
+                        color: 'var(--gold)',
+                        border: '1px solid rgba(212, 175, 55, 0.3)',
+                        fontWeight: 600
+                      }}>
+                        {signalSheet.privacy_mode === 'strict_local' ? 'Local Strict (0 appel cloud)' : signalSheet.privacy_mode}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Ligne Langue */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px' }}>
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>Langue de Narration</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Langue canonique des fiches et du dialogue</div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                      {signalSheet.default_language?.toUpperCase() || 'FR'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Métriques */}
+              {/* Inventaire Numérique - Dégradé & Tons Or sobre */}
               <div style={{
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--border-subtle)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
                 borderRadius: '12px',
-                padding: '16px 20px',
-                display: 'flex',
-                justifyContent: 'space-around',
+                padding: '16px 24px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
                 textAlign: 'center'
               }}>
-                <div>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--teal)' }}>{signalSheet.sources_count}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Sources</div>
+                <div style={{ borderRight: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.sources_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
+                    {signalSheet.sources_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    {signalSheet.sources_count === 0 ? 'Aucune source' : `${signalSheet.sources_count} Source(s)`}
+                  </div>
                 </div>
-                <div style={{ width: '1px', background: 'var(--border-subtle)' }} />
-                <div>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--green)' }}>{signalSheet.wiki_count}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Notes de Lore</div>
+
+                <div style={{ borderRight: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.wiki_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
+                    {signalSheet.wiki_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    {signalSheet.wiki_count === 0 ? 'Aucune note' : `${signalSheet.wiki_count} Note(s) de Lore`}
+                  </div>
                 </div>
-                <div style={{ width: '1px', background: 'var(--border-subtle)' }} />
+
                 <div>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--gold)' }}>{signalSheet.personae_count}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Personnages</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.personae_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
+                    {signalSheet.personae_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px' }}>
+                    {signalSheet.personae_count === 0 ? 'Aucun personnage' : `${signalSheet.personae_count} Personnage(s)`}
+                  </div>
                 </div>
               </div>
 

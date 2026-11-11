@@ -1,6 +1,16 @@
-theater_id: "anastasius-homebrew"
-name: "Anastasius — Les Chroniques de l'Éther Fracturé"
-version: "2.1.0"
-system_preset: "Anastasius"
-privacy_mode: "strict_local"
-default_language: "fr"
+name: Anastasius
+version: 2.1.0
+system_id: Anastasius
+description: Théâtre de jeu de rôle Dramatis
+privacy_mode: strict_local
+chronos:
+  calendar_type: standard
+  current_timestamp_seconds: 0
+  current_season: Spring
+  current_year: 1220
+  round_duration_seconds: 3
+  time_hooks: []
+default_role: null
+theater_id: anastasius-homebrew
+default_language: fr
+agent_routing: null
