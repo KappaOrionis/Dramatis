@@ -22,6 +22,37 @@ import {
   SlidersHorizontal
 } from 'lucide-react';
 
+// Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
+function DramatisLogo({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" style={{ flexShrink: 0 }}>
+      <circle cx="32" cy="32" r="30" fill="rgba(212, 175, 55, 0.12)" />
+      {/* Arcade / Masque Or Ancien */}
+      <path
+        d="M32 6C17.64 6 6 17.64 6 32c0 10.45 6.16 19.46 15.08 23.59C22.4 54.34 23 52.75 23 51c0-4.42-3.58-8-8-8-1.66 0-3.2.51-4.48 1.38C8.36 40.59 7.2 36.44 7.2 32c0-13.7 11.1-24.8 24.8-24.8s24.8 11.1 24.8 24.8c0 4.44-1.16 8.59-3.32 12.38-1.28-.87-2.82-1.38-4.48-1.38-4.42 0-8 3.58-8 8 0 1.75.6 3.34 1.92 4.59C41.84 51.46 48 42.45 48 32c0-14.36-11.64-26-16-26z"
+        fill="url(#goldGradient)"
+      />
+      {/* Œil gauche : Plume poétique */}
+      <circle cx="26" cy="24" r="2.4" fill="#0B0C10" />
+      <circle cx="26" cy="24" r="1.2" fill="#E5C158" />
+      {/* Œil droit : Réticule Machina déterministe */}
+      <circle cx="43" cy="24" r="3.2" stroke="#00F0FF" strokeWidth="1.8" fill="#0B0C10" />
+      <path d="M43 19v10M38 24h10" stroke="#00F0FF" strokeWidth="1.2" strokeLinecap="round" />
+      {/* Étoile Stellaire centrale */}
+      <path d="M32 13l2.8 7.2L42 23l-7.2 2.8L32 33l-2.8-7.2L22 23l7.2-2.8z" fill="#FFFFFF" opacity="0.95" />
+      {/* Sourire théâtral */}
+      <path d="M22 41c3 4 7 6 10 6s7-2 10-6" stroke="url(#goldGradient)" strokeWidth="2.6" strokeLinecap="round" />
+      <defs>
+        <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#E5C158" />
+          <stop offset="50%" stopColor="#D4AF37" />
+          <stop offset="100%" stopColor="#A88926" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 interface TheaterSnapshot {
   commit_hash: string;
   message: string;
@@ -734,13 +765,14 @@ export default function App() {
           borderBottom: '1px solid var(--border-subtle)'
         }}>
           {!isSidebarCollapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sparkles size={18} color="var(--gold)" />
-              <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.05rem', color: 'var(--gold)', letterSpacing: '0.08em' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <DramatisLogo size={24} />
+              <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)', letterSpacing: '0.08em' }}>
                 DRAMATIS
               </span>
             </div>
           )}
+          {isSidebarCollapsed && <DramatisLogo size={24} />}
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
             style={{ padding: '6px', borderRadius: '6px', color: 'var(--text-muted)' }}
@@ -1035,8 +1067,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Configuration & Paramètres Carnet */}
-          <div style={{ marginTop: 'auto' }}>
+          <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
             <button
               onClick={() => setIsConfigModalOpen(true)}
               style={{
@@ -1051,7 +1082,7 @@ export default function App() {
               }}
             >
               <Bot size={16} color="var(--gold)" />
-              {!isSidebarCollapsed && <span>Agents & Réglages</span>}
+              {!isSidebarCollapsed && <span>Agents du Harnais</span>}
             </button>
           </div>
 
@@ -1123,39 +1154,21 @@ export default function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
-              onClick={() => setIsConfigModalOpen(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: '9999px',
-                background: 'var(--surface-elevated)',
-                border: '1px solid var(--border)',
-                color: 'var(--gold)',
-                fontSize: '0.8rem',
-                fontWeight: 600
-              }}
-            >
-              <Bot size={13} />
-              <span>Agents & Réglages</span>
-            </button>
-
-            <button
               onClick={() => setIsDrawerOpen(!isDrawerOpen)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '6px 12px',
+                padding: '6px 14px',
                 borderRadius: '9999px',
                 background: 'var(--surface-elevated)',
                 border: '1px solid var(--border)',
                 color: 'var(--text-muted)',
-                fontSize: '0.8rem'
+                fontSize: '0.8rem',
+                fontWeight: 500
               }}
             >
-              <Database size={13} />
+              <Database size={13} color="var(--gold)" />
               <span>Outils MJ</span>
             </button>
           </div>
@@ -1175,29 +1188,29 @@ export default function App() {
                     <Compass size={15} />
                     <span>Fiche Signalétique d'Univers</span>
                   </div>
-                  <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.1rem', color: 'var(--text-main)', marginTop: '4px', letterSpacing: '0.02em' }}>
+                  <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.2rem', color: 'var(--text-main)', marginTop: '4px', letterSpacing: '0.04em' }}>
                     {signalSheet.name}
                   </h1>
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
                   <button
                     onClick={() => setIsConfigModalOpen(true)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 14px',
+                      gap: '7px',
+                      padding: '8px 15px',
                       borderRadius: '8px',
                       background: 'var(--surface-elevated)',
-                      border: '1px solid var(--border)',
+                      border: '1px solid var(--border-gold)',
                       color: 'var(--gold)',
                       fontWeight: 600,
                       fontSize: '0.85rem'
                     }}
                   >
-                    <Bot size={14} />
-                    <span>Ajuster les Agents</span>
+                    <Bot size={15} />
+                    <span>Agents du Harnais</span>
                   </button>
 
                   <button
@@ -1209,10 +1222,10 @@ export default function App() {
                       padding: '8px 18px',
                       borderRadius: '8px',
                       background: 'var(--gold)',
-                      color: '#000',
-                      fontWeight: 600,
+                      color: '#0B0C10',
+                      fontWeight: 700,
                       fontSize: '0.85rem',
-                      boxShadow: '0 4px 12px rgba(212, 175, 55, 0.2)'
+                      boxShadow: '0 4px 14px rgba(212, 175, 55, 0.25)'
                     }}
                   >
                     <span>Consulter les Sources</span>

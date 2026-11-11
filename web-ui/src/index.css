@@ -1,33 +1,42 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --canvas: #0B0C10;
-  --sidebar-bg: #111216;
-  --sidebar-hover: #1A1C23;
-  --sidebar-active: #222530;
-  --surface: #14161D;
-  --surface-elevated: #1C1F2A;
-  --surface-pill: #1C1E24;
-  --border: rgba(255, 255, 255, 0.08);
+  /* BRAND.md Palette v2.1 */
+  --canvas: #0B0C10;              /* Theater Canvas abyssal */
+  --sidebar-bg: #111216;          /* Volet latéral backstage */
+  --sidebar-hover: #161820;
+  --sidebar-active: #1D202B;
+  --surface: #14161D;             /* Backstage surface */
+  --surface-elevated: #1C1F2A;    /* Backstage elevated */
+  --surface-pill: #181A22;
+  
+  --border: rgba(255, 255, 255, 0.08);       /* Theater border 1px */
   --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-gold: rgba(212, 175, 55, 0.25);
   
-  --gold: #D4AF37;
-  --gold-dim: #A88926;
-  --gold-glow: rgba(212, 175, 55, 0.2);
-  --amber: #FF9F1C;
-  --teal: #00F0FF;
-  --purple: #A855F7;
-  --green: #10B981;
-  --red: #EF4444;
-  
-  --text-main: #F3F4F6;
-  --text-muted: #9CA3AF;
-  --text-dim: #6B7280;
+  /* Accents Nobles & Fonctionnels */
+  --gold: #D4AF37;                /* Dramatis Gold (Or ancien) */
+  --gold-bright: #E5C158;
+  --gold-dim: #997B20;
+  --gold-glow: rgba(212, 175, 55, 0.15);
+  --gold-surface: rgba(212, 175, 55, 0.04);
 
+  --amber: #FF9F1C;               /* Machina Amber (Déterminisme, dés, règles) */
+  --teal: #00F0FF;                /* Hermetic Teal (Magie, résonance, sources) */
+  --green: #10B981;               /* Consensus Green (Succès, wiki, validation) */
+  --purple: #A855F7;              /* Secret Purple (MJ, mystères, arrière-plan) */
+  --red: #EF4444;                 /* Verdict Critical (Échec critique, botch) */
+  
+  /* Niveaux de texte contrastés */
+  --text-main: #F3F4F6;           /* Text high contrast (WCAG AAA) */
+  --text-muted: #9CA3AF;          /* Text muted */
+  --text-dim: #6B7280;            /* Text dim */
+
+  /* Typographies officielles BRAND.md */
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-serif: 'EB Garamond', serif;
-  --font-title: 'Cinzel', serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-serif: 'EB Garamond', Georgia, serif;
+  --font-title: 'Cinzel', Georgia, serif;
+  --font-mono: 'JetBrains Mono', Consolas, monospace;
 }
 
 * {
@@ -43,6 +52,7 @@ body {
   min-height: 100vh;
   overflow: hidden;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
 }
 
 button {
@@ -55,7 +65,7 @@ button {
 }
 
 button:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.12);
 }
 
 input, textarea, select {
@@ -64,7 +74,7 @@ input, textarea, select {
   color: var(--text-main);
 }
 
-/* Custom Scrollbars */
+/* Custom Scrollbars discrets */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -75,10 +85,10 @@ input, textarea, select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(212, 175, 55, 0.15);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(212, 175, 55, 0.3);
 }
