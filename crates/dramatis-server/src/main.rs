@@ -455,6 +455,7 @@ pub struct HybridSearchRequest {
 #[derive(Deserialize)]
 pub struct ArchivistQueryRequest {
     pub query: String,
+    pub selected_sources: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -1005,17 +1006,166 @@ async fn archivist_query_handler(
     let engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let hits = engine
-        .search_hybrid(&payload.query, None, 3)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut citations: Vec<Citation> = Vec::new();
+    let mut matched_excerpts: Vec<String> = Vec::new();
 
-    let citations: Vec<Citation> = hits
-        .iter()
-        .map(|h| Citation::new(&h.source_path, h.page, &h.excerpt))
+    // 1. Hybrid search (Tantivy + Knowledge Graph + RRF)
+    if let Ok(hits) = engine.search_hybrid(&payload.query, None, 6) {
+        for h in hits {
+            if let Some(allowed) = &payload.selected_sources {
+                if !allowed.is_empty() {
+                    let allowed_match = allowed.iter().any(|src| {
+                        h.source_path.contains(src) || src.contains(&h.source_path)
+                    });
+                    if !allowed_match {
+                        continue;
+                    }
+                }
+            }
+            citations.push(Citation::new(&h.source_path, h.page, &h.excerpt));
+            matched_excerpts.push(h.excerpt);
+        }
+    }
+
+    // 2. Direct paragraph scan across 00_sources/ and 01_wiki/ for NotebookLM-style precision
+    let query_terms: Vec<String> = payload
+        .query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .map(|s| s.to_string())
         .collect();
 
-    let summary_text = hits.first().map(|h| h.excerpt.as_str());
-    let verdict = ArchivistAgent::answer_query(&payload.query, citations, summary_text);
+    if !query_terms.is_empty() {
+        let mut candidate_snippets: Vec<(usize, String, String)> = Vec::new();
+
+        // Scan 00_sources/
+        let sources_dir = theater_path.join("00_sources");
+        if let Ok(entries) = std::fs::read_dir(&sources_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let file_name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let rel_path = format!("00_sources/{}", file_name);
+
+                if let Some(allowed) = &payload.selected_sources {
+                    if !allowed.is_empty()
+                        && !allowed.iter().any(|s| s == &file_name || s == &rel_path)
+                    {
+                        continue;
+                    }
+                }
+
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        for chunk in content.split("\n\n") {
+                            let clean = chunk.trim();
+                            if clean.len() < 20 {
+                                continue;
+                            }
+                            let lower = clean.to_lowercase();
+                            let score = query_terms
+                                .iter()
+                                .filter(|term| lower.contains(term.as_str()))
+                                .count();
+                            if score > 0 {
+                                let snippet: String = clean.chars().take(360).collect();
+                                candidate_snippets.push((score, rel_path.clone(), snippet));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scan 01_wiki/ if no strict source filter or if wiki is included
+        let wiki_dir = theater_path.join("01_wiki");
+        if let Ok(cats) = std::fs::read_dir(&wiki_dir) {
+            for cat in cats.flatten() {
+                if cat.path().is_dir() {
+                    let cat_name = cat.file_name().to_string_lossy().to_string();
+                    if let Ok(files) = std::fs::read_dir(cat.path()) {
+                        for f in files.flatten() {
+                            let p = f.path();
+                            if p.extension().and_then(|e| e.to_str()) == Some("md") {
+                                let fname = p
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let rel_path = format!("01_wiki/{}/{}", cat_name, fname);
+                                if let Some(allowed) = &payload.selected_sources {
+                                    if !allowed.is_empty()
+                                        && !allowed.iter().any(|s| s == &fname || s == &rel_path)
+                                    {
+                                        continue;
+                                    }
+                                }
+                                if let Ok(content) = std::fs::read_to_string(&p) {
+                                    for chunk in content.split("\n\n") {
+                                        let clean = chunk.trim();
+                                        if clean.len() < 15 || clean.starts_with("---") {
+                                            continue;
+                                        }
+                                        let lower = clean.to_lowercase();
+                                        let score = query_terms
+                                            .iter()
+                                            .filter(|term| lower.contains(term.as_str()))
+                                            .count();
+                                        if score > 0 {
+                                            let snippet: String = clean.chars().take(360).collect();
+                                            candidate_snippets.push((
+                                                score,
+                                                rel_path.clone(),
+                                                snippet,
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        candidate_snippets.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, rel_path, snippet) in candidate_snippets.into_iter().take(4) {
+            if !citations
+                .iter()
+                .any(|c| c.source_file == rel_path && c.snippet == snippet)
+            {
+                citations.push(Citation::new(&rel_path, Some(1), &snippet));
+                matched_excerpts.push(snippet);
+            }
+        }
+    }
+
+    citations.truncate(4);
+    matched_excerpts.truncate(3);
+
+    let synthesized_text = if matched_excerpts.is_empty() {
+        None
+    } else {
+        Some(matched_excerpts.join("\n\n---\n\n"))
+    };
+
+    let verdict = ArchivistAgent::answer_query(
+        &payload.query,
+        citations,
+        synthesized_text.as_deref(),
+    );
     Ok(Json(verdict))
 }
 

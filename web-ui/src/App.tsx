@@ -429,6 +429,20 @@ export default function App() {
   const [stageVerdict, setStageVerdict] = useState<string | null>(null);
   const [rollResult, setRollResult] = useState<any | null>(null);
 
+  // Panneau Outils & Studio "L'Archiviste" (style NotebookLM)
+  const [activeToolTab, setActiveToolTab] = useState<'archivist' | 'regie'>('archivist');
+  const [archivistSelectedSources, setArchivistSelectedSources] = useState<string[]>([]);
+  const [archivistChatInput, setArchivistChatInput] = useState('');
+  const [isArchivistThinking, setIsArchivistThinking] = useState(false);
+  const [archivistMessages, setArchivistMessages] = useState<{
+    role: 'user' | 'archivist';
+    text: string;
+    citations?: CitationItem[];
+    documentarySilence?: boolean;
+    timestamp: string;
+  }[]>([]);
+  const [archivistPreviewCitation, setArchivistPreviewCitation] = useState<CitationItem | null>(null);
+
   useEffect(() => {
     loadTheaters();
   }, []);
@@ -483,6 +497,7 @@ export default function App() {
       if (srcRes.ok) {
         const fetchedSources: SourceFileEntry[] = await srcRes.json();
         setSourcesList(fetchedSources);
+        setArchivistSelectedSources(fetchedSources.map((s) => s.file_name));
         // Initialiser l'ordre personnalisé si vide ou nouveaux fichiers
         setCustomSourceOrder((prev) => {
           const fetchedNames = fetchedSources.map((s) => s.file_name);
@@ -928,6 +943,58 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // Interrogation NotebookLM-like de L'Archiviste dans le tiroir "Outils"
+  const handleAskArchivistTool = async (customQuery?: string) => {
+    const queryText = (customQuery ?? archivistChatInput).trim();
+    if (!queryText) return;
+
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setArchivistMessages((prev) => [
+      ...prev,
+      { role: 'user', text: queryText, timestamp: nowTime }
+    ]);
+    if (!customQuery) setArchivistChatInput('');
+    setIsArchivistThinking(true);
+
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}/agents/archivist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: queryText,
+          selected_sources: archivistSelectedSources
+        })
+      });
+
+      if (res.ok) {
+        const data: ArchivistVerdictResponse = await res.json();
+        setArchivistMessages((prev) => [
+          ...prev,
+          {
+            role: 'archivist',
+            text: data.answer,
+            citations: data.citations,
+            documentarySilence: data.documentary_silence,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]);
+        if (data.citations && data.citations.length > 0) {
+          setArchivistPreviewCitation(data.citations[0]);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsArchivistThinking(false);
+    }
+  };
+
+  const toggleArchivistSource = (fileName: string) => {
+    setArchivistSelectedSources((prev) =>
+      prev.includes(fileName) ? prev.filter((f) => f !== fileName) : [...prev, fileName]
+    );
   };
 
   // Nom d'affichage épuré de carnet
@@ -1464,15 +1531,15 @@ export default function App() {
                 gap: '6px',
                 padding: '6px 14px',
                 borderRadius: '9999px',
-                background: 'var(--surface-elevated)',
-                border: '1px solid var(--border)',
-                color: 'var(--text-muted)',
+                background: isDrawerOpen ? 'var(--gold-surface)' : 'var(--surface-elevated)',
+                border: isDrawerOpen ? '1px solid var(--border-gold)' : '1px solid var(--border)',
+                color: isDrawerOpen ? 'var(--gold)' : 'var(--text-muted)',
                 fontSize: '0.8rem',
-                fontWeight: 500
+                fontWeight: 600
               }}
             >
               <Database size={13} color="var(--gold)" />
-              <span>Outils MJ</span>
+              <span>Outils</span>
             </button>
           </div>
         </header>
@@ -3402,140 +3469,648 @@ export default function App() {
       )}
 
       {/* =========================================================================
-          6. TIROIR OUTILS MJ
+          6. PANNEAU "OUTILS" (AVEC OUTIL 1 : L'ARCHIVISTE STYLE NOTEBOOKLM)
          ========================================================================= */}
       {isDrawerOpen && (
-        <aside style={{ width: '320px', background: 'var(--sidebar-bg)', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
-          <div style={{ height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold)' }}>Outils MJ</span>
-            <button onClick={() => setIsDrawerOpen(false)} style={{ color: 'var(--text-dim)', fontSize: '1.2rem' }}>×</button>
+        <aside style={{
+          width: '460px',
+          flexShrink: 0,
+          background: 'var(--sidebar-bg)',
+          borderLeft: '1px solid var(--border)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 20,
+          boxShadow: '-12px 0 32px rgba(0,0,0,0.4)'
+        }}>
+          {/* En-tête du panneau Outils */}
+          <div style={{
+            height: '52px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 18px',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Database size={15} color="var(--gold)" />
+              <span style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--gold)', letterSpacing: '0.02em' }}>
+                Outils
+              </span>
+            </div>
+            <button
+              onClick={() => setIsDrawerOpen(false)}
+              style={{ color: 'var(--text-dim)', fontSize: '1.2rem', padding: '4px' }}
+              title="Fermer le panneau Outils"
+            >
+              ×
+            </button>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            
-            {/* Dé Physique Override */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                Dé Physique (Saisie Manuelle)
-              </span>
-              <input
-                type="text"
-                placeholder="Ex: 17"
-                value={physicalDiceOverride}
-                onChange={(e) => setPhysicalDiceOverride(e.target.value)}
-                style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '0.8rem' }}
-              />
-            </div>
+          {/* Sélecteur d'outils (Onglets : 1. L'Archiviste | 2. Régie & Table) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '6px',
+            padding: '10px 14px',
+            background: 'rgba(0,0,0,0.25)',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}>
+            <button
+              onClick={() => setActiveToolTab('archivist')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '7px',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                background: activeToolTab === 'archivist' ? 'var(--gold)' : 'var(--surface-elevated)',
+                color: activeToolTab === 'archivist' ? '#0B0C10' : 'var(--text-muted)',
+                border: activeToolTab === 'archivist' ? '1px solid var(--gold)' : '1px solid var(--border)',
+                fontWeight: activeToolTab === 'archivist' ? 700 : 500,
+                fontSize: '0.78rem',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <BookOpen size={14} />
+              <span>1. L'Archiviste</span>
+            </button>
 
-            {/* Sauvegardes / Snapshots */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                  Sauvegardes ({snapshots.length})
-                </span>
-                <button
-                  onClick={async () => {
-                    await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ message: `Sauvegarde ${new Date().toLocaleTimeString()}` })
-                    });
-                    loadTheaterAll(selectedTheater);
-                  }}
-                  style={{ fontSize: '0.7rem', color: 'var(--gold)' }}
-                >
-                  + Créer
-                </button>
-              </div>
+            <button
+              onClick={() => setActiveToolTab('regie')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '7px',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                background: activeToolTab === 'regie' ? 'var(--gold)' : 'var(--surface-elevated)',
+                color: activeToolTab === 'regie' ? '#0B0C10' : 'var(--text-muted)',
+                border: activeToolTab === 'regie' ? '1px solid var(--gold)' : '1px solid var(--border)',
+                fontWeight: activeToolTab === 'regie' ? 700 : 500,
+                fontSize: '0.78rem',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Sliders size={14} />
+              <span>2. Régie & Dés</span>
+            </button>
+          </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {snapshots.slice(0, 4).map((s, idx) => (
-                  <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>{s.message}</div>
-                    <div style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{s.commit_hash.slice(0, 7)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* =====================================================================
+              OUTIL 1 : L'ARCHIVISTE (EXPLORATEUR & ASSISTANT DE SOURCES NOTEBOOKLM)
+             ===================================================================== */}
+          {activeToolTab === 'archivist' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              
+              {/* Section supérieure : Périmètre des Sources cochables (comme NotebookLM) */}
+              <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: 'rgba(255,255,255,0.01)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                maxHeight: '215px',
+                overflowY: 'auto'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--gold)' }}>
+                    Sources actives ({archivistSelectedSources.length}/{sourcesList.length})
+                  </span>
+                  {sourcesList.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (archivistSelectedSources.length === sourcesList.length) {
+                          setArchivistSelectedSources([]);
+                        } else {
+                          setArchivistSelectedSources(sourcesList.map((s) => s.file_name));
+                        }
+                      }}
+                      style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textDecoration: 'underline' }}
+                    >
+                      {archivistSelectedSources.length === sourcesList.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    </button>
+                  )}
+                </div>
 
-            {/* Personnages */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                  Personnages ({personae.length})
-                </span>
-                <button
-                  onClick={async () => {
-                    const name = prompt("Nom du nouveau personnage :");
-                    if (!name || !name.trim()) return;
-                    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
-                    const res = await fetch(`/api/theaters/${selectedTheater}/personae`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        id,
-                        name: name.trim(),
-                        role: 'PlayerCharacter',
-                        attributes: {},
-                        skills: {}
-                      })
-                    });
-                    if (res.ok) loadTheaterAll(selectedTheater);
-                  }}
-                  style={{ fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 600 }}
-                >
-                  + Ajouter
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {personae.map((p, idx) => (
-                  <div key={idx} style={{
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    background: 'rgba(255, 255, 255, 0.02)',
+                {sourcesList.length === 0 ? (
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'var(--surface)',
+                    border: '1px dashed var(--border)',
                     fontSize: '0.75rem',
-                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-dim)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between'
                   }}>
-                    <div
-                      onClick={() => handleNavigateToSource(`03_personae/${p.id}.persona.json`)}
-                      style={{ cursor: 'pointer', flex: 1 }}
-                      title="Consulter la fiche du personnage"
-                    >
-                      <div style={{ color: 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>{p.name}</span>
-                        <ExternalLink size={9} color="var(--text-dim)" />
-                      </div>
-                      <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>{p.id}</div>
-                    </div>
-
+                    <span>Aucune source dans cet univers.</span>
                     <button
-                      onClick={async () => {
-                        if (!confirm(`Supprimer le personnage "${p.name}" ?`)) return;
-                        const res = await fetch(`/api/theaters/${selectedTheater}/personae/${encodeURIComponent(p.id)}`, {
-                          method: 'DELETE'
-                        });
-                        if (res.ok) loadTheaterAll(selectedTheater);
-                      }}
-                      style={{
-                        padding: '4px',
-                        borderRadius: '4px',
-                        color: 'var(--text-dim)',
-                        background: 'transparent'
-                      }}
-                      title="Supprimer ce personnage"
+                      onClick={() => setActiveStep('sources')}
+                      style={{ color: 'var(--gold)', fontWeight: 600, fontSize: '0.74rem' }}
                     >
-                      <Trash2 size={13} />
+                      + Importer
                     </button>
                   </div>
-                ))}
-              </div>
-            </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {sourcesList.map((src) => {
+                      const isChecked = archivistSelectedSources.includes(src.file_name);
+                      const badge = getSourceTypeBadge(src.file_type);
+                      return (
+                        <div
+                          key={src.file_name}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            padding: '6px 10px',
+                            borderRadius: '7px',
+                            background: isChecked ? 'rgba(212, 175, 55, 0.06)' : 'var(--surface)',
+                            border: isChecked ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
+                            fontSize: '0.76rem'
+                          }}
+                        >
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, cursor: 'pointer', overflow: 'hidden' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleArchivistSource(src.file_name)}
+                              style={{ accentColor: '#D4AF37', cursor: 'pointer' }}
+                            />
+                            <span style={{
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: badge.bg,
+                              color: badge.color,
+                              border: `1px solid ${badge.border}`,
+                              flexShrink: 0
+                            }}>
+                              {badge.label}
+                            </span>
+                            <span style={{
+                              color: isChecked ? 'var(--text-main)' : 'var(--text-dim)',
+                              fontWeight: isChecked ? 600 : 400,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }} title={src.file_name}>
+                              {src.file_name}
+                            </span>
+                          </label>
 
-          </div>
+                          <button
+                            onClick={() => handleViewSource(src.file_name)}
+                            style={{
+                              padding: '3px 7px',
+                              borderRadius: '4px',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--gold)',
+                              fontSize: '0.68rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              flexShrink: 0
+                            }}
+                            title="Ouvrir le document complet dans la visionneuse"
+                          >
+                            <Eye size={11} />
+                            <span>Lire</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Aperçu rapide d'extrait cité (Source Guide / Passage mis en évidence façon NotebookLM) */}
+              {archivistPreviewCitation && (
+                <div style={{
+                  margin: '10px 14px 0 14px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(212, 175, 55, 0.07)',
+                  border: '1px solid var(--border-gold)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gold)' }}>
+                      <FileText size={12} />
+                      <span>Extrait Source : {archivistPreviewCitation.source_file}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        onClick={() => handleNavigateToSource(archivistPreviewCitation.source_file)}
+                        style={{
+                          fontSize: '0.68rem',
+                          color: '#0B0C10',
+                          background: 'var(--gold)',
+                          fontWeight: 700,
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <span>Ouvrir la source</span>
+                        <ExternalLink size={9} />
+                      </button>
+                      <button
+                        onClick={() => setArchivistPreviewCitation(null)}
+                        style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-serif)',
+                    fontSize: '0.8rem',
+                    lineHeight: '1.5',
+                    color: 'var(--text-main)',
+                    maxHeight: '95px',
+                    overflowY: 'auto',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    background: 'rgba(0,0,0,0.35)'
+                  }}>
+                    « {archivistPreviewCitation.snippet} »
+                  </div>
+                </div>
+              )}
+
+              {/* Fil de discussion & réponses sourcées de L'Archiviste */}
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                {archivistMessages.length === 0 ? (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-subtle)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontWeight: 700, fontSize: '0.85rem' }}>
+                      <Sparkles size={15} />
+                      <span>Guide de Sources — L'Archiviste</span>
+                    </div>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                      Interrogez vos manuels, règles et notes comme dans <strong>NotebookLM</strong>. L'Archiviste répond exclusivement à partir des sources cochées ci-dessus, cite chaque passage et déclare formellement le silence documentaire si un fait n'est pas attesté.
+                    </p>
+
+                    {/* Questions rapides suggérées */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                        Questions suggérées sur vos sources :
+                      </span>
+                      {[
+                        'Résume les règles principales et le cadre de cet univers',
+                        'Quels sont les lieux, alliances ou factions mentionnés ?',
+                        'Comment fonctionne la magie ou la résolution des actions ?',
+                        'Quels sont les secrets ou menaces majeures ?'
+                      ].map((q, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleAskArchivistTool(q)}
+                          style={{
+                            textAlign: 'left',
+                            padding: '7px 10px',
+                            borderRadius: '7px',
+                            background: 'var(--surface-elevated)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                            fontSize: '0.75rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px'
+                          }}
+                        >
+                          <span>{q}</span>
+                          <ArrowRight size={12} color="var(--gold)" style={{ flexShrink: 0 }} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  archivistMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        alignSelf: msg.role === 'user' ? 'flex-end' : 'stretch',
+                        maxWidth: msg.role === 'user' ? '88%' : '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        background: msg.role === 'user'
+                          ? 'rgba(212, 175, 55, 0.14)'
+                          : msg.documentarySilence
+                          ? 'rgba(255, 159, 28, 0.06)'
+                          : 'var(--surface)',
+                        border: msg.role === 'user'
+                          ? '1px solid var(--border-gold)'
+                          : msg.documentarySilence
+                          ? '1px solid rgba(255, 159, 28, 0.35)'
+                          : '1px solid var(--border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                        <span style={{ fontWeight: 700, color: msg.role === 'user' ? 'var(--gold)' : 'var(--amber)' }}>
+                          {msg.role === 'user' ? 'Vous' : "📜 L'Archiviste (RAG Canonique)"}
+                        </span>
+                        <span>{msg.timestamp}</span>
+                      </div>
+
+                      <div style={{
+                        fontFamily: msg.role === 'archivist' ? 'var(--font-serif)' : 'var(--font-sans)',
+                        fontSize: '0.84rem',
+                        lineHeight: '1.55',
+                        color: 'var(--text-main)',
+                        whiteSpace: 'pre-line'
+                      }}>
+                        {msg.text}
+                      </div>
+
+                      {/* Badges de citations cliquables (façon NotebookLM) */}
+                      {msg.citations && msg.citations.length > 0 && (
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '5px',
+                          paddingTop: '6px',
+                          borderTop: '1px solid var(--border-subtle)'
+                        }}>
+                          <span style={{ fontSize: '0.67rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase' }}>
+                            Passages cités ({msg.citations.length}) — Cliquer pour inspecter :
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {msg.citations.map((cit, cIdx) => (
+                              <div key={cIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <button
+                                  onClick={() => setArchivistPreviewCitation(cit)}
+                                  style={{
+                                    fontSize: '0.68rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    background: 'var(--gold-surface)',
+                                    border: '1px solid var(--border-gold)',
+                                    color: 'var(--gold)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  title={cit.snippet}
+                                >
+                                  <span>[{cIdx + 1}] {cit.source_file.replace('00_sources/', '')}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleNavigateToSource(cit.source_file)}
+                                  style={{
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    background: 'var(--surface-elevated)',
+                                    border: '1px solid var(--border)',
+                                    color: 'var(--text-muted)'
+                                  }}
+                                  title="Ouvrir le document complet"
+                                >
+                                  <ExternalLink size={10} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+
+                {isArchivistThinking && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--gold)', fontStyle: 'italic', padding: '6px 10px' }}>
+                    L'Archiviste inspecte les sources sélectionnées...
+                  </div>
+                )}
+              </div>
+
+              {/* Barre de saisie de question à L'Archiviste */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAskArchivistTool();
+                }}
+                style={{
+                  padding: '12px 14px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={archivistChatInput}
+                    onChange={(e) => setArchivistChatInput(e.target.value)}
+                    placeholder="Poser une question sur les sources cochées..."
+                    style={{
+                      flex: 1,
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '0.82rem',
+                      color: 'var(--text-main)'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!archivistChatInput.trim() || isArchivistThinking}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: archivistChatInput.trim() ? 'var(--gold)' : 'var(--surface-elevated)',
+                      color: archivistChatInput.trim() ? '#0B0C10' : 'var(--text-dim)',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="Interroger L'Archiviste"
+                  >
+                    <Send size={14} />
+                  </button>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                  <span>{archivistSelectedSources.length} source(s) active(s) dans le contexte</span>
+                  {archivistMessages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setArchivistMessages([]);
+                        setArchivistPreviewCitation(null);
+                      }}
+                      style={{ color: 'var(--text-dim)', textDecoration: 'underline' }}
+                    >
+                      Effacer la conversation
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* =====================================================================
+              OUTIL 2 : RÉGIE, DÉ PHYSIQUE, SAUVEGARDES & PERSONNAGES
+             ===================================================================== */}
+          {activeToolTab === 'regie' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Dé Physique Override */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Dé Physique (Saisie Manuelle)
+                </span>
+                <input
+                  type="text"
+                  placeholder="Ex: 17"
+                  value={physicalDiceOverride}
+                  onChange={(e) => setPhysicalDiceOverride(e.target.value)}
+                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '0.8rem' }}
+                />
+              </div>
+
+              {/* Sauvegardes / Snapshots */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Sauvegardes ({snapshots.length})
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: `Sauvegarde ${new Date().toLocaleTimeString()}` })
+                      });
+                      loadTheaterAll(selectedTheater);
+                    }}
+                    style={{ fontSize: '0.7rem', color: 'var(--gold)' }}
+                  >
+                    + Créer
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {snapshots.slice(0, 4).map((s, idx) => (
+                    <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>{s.message}</div>
+                      <div style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{s.commit_hash.slice(0, 7)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Personnages */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Personnages ({personae.length})
+                  </span>
+                  <button
+                    onClick={async () => {
+                      const name = prompt("Nom du nouveau personnage :");
+                      if (!name || !name.trim()) return;
+                      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                      const res = await fetch(`/api/theaters/${selectedTheater}/personae`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          id,
+                          name: name.trim(),
+                          system: signalSheet?.system_preset || 'Generic'
+                        })
+                      });
+                      if (res.ok) loadTheaterAll(selectedTheater);
+                    }}
+                    style={{ fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 600 }}
+                  >
+                    + Ajouter
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {personae.map((p, idx) => (
+                    <div key={idx} style={{
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      fontSize: '0.75rem',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div
+                        onClick={() => handleNavigateToSource(`03_personae/${p.id}.persona.json`)}
+                        style={{ cursor: 'pointer', flex: 1 }}
+                        title="Consulter la fiche du personnage"
+                      >
+                        <div style={{ color: 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>{p.name}</span>
+                          <ExternalLink size={9} color="var(--text-dim)" />
+                        </div>
+                        <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>{p.id}</div>
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Supprimer le personnage "${p.name}" ?`)) return;
+                          const res = await fetch(`/api/theaters/${selectedTheater}/personae/${encodeURIComponent(p.id)}`, {
+                            method: 'DELETE'
+                          });
+                          if (res.ok) loadTheaterAll(selectedTheater);
+                        }}
+                        style={{
+                          padding: '4px',
+                          borderRadius: '4px',
+                          color: 'var(--text-dim)',
+                          background: 'transparent'
+                        }}
+                        title="Supprimer ce personnage"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          )}
+
         </aside>
       )}
 
