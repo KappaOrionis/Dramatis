@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct Citation {
     pub source_file: String,
     pub page_number: Option<u32>,
+    pub line_number: Option<usize>,
     pub snippet: String,
 }
 
@@ -12,14 +13,26 @@ impl Citation {
         Self {
             source_file: source_file.to_string(),
             page_number,
+            line_number: None,
+            snippet: snippet.to_string(),
+        }
+    }
+
+    pub fn with_line(source_file: &str, page_number: Option<u32>, line_number: Option<usize>, snippet: &str) -> Self {
+        Self {
+            source_file: source_file.to_string(),
+            page_number,
+            line_number,
             snippet: snippet.to_string(),
         }
     }
 
     pub fn format_citation(&self) -> String {
-        match self.page_number {
-            Some(p) => format!("[{}, p. {}]", self.source_file, p),
-            None => format!("[{}]", self.source_file),
+        match (self.page_number, self.line_number) {
+            (Some(p), Some(l)) => format!("[{}, p. {}, l. {}]", self.source_file, p, l),
+            (Some(p), None) => format!("[{}, p. {}]", self.source_file, p),
+            (None, Some(l)) => format!("[{}, l. {}]", self.source_file, l),
+            (None, None) => format!("[{}]", self.source_file),
         }
     }
 }

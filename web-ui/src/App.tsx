@@ -100,6 +100,7 @@ interface WikiNoteEntry {
 interface CitationItem {
   source_file: string;
   page_number?: number;
+  line_number?: number;
   snippet: string;
 }
 
@@ -407,7 +408,7 @@ export default function App() {
   const [sourceSortOrder, setSourceSortOrder] = useState<'custom' | 'name-asc' | 'name-desc' | 'type-asc' | 'size-desc' | 'size-asc'>('custom');
   const [customSourceOrder, setCustomSourceOrder] = useState<string[]>([]);
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
-  const [viewingSource, setViewingSource] = useState<{ file_name: string; relative_path: string; content: string; file_type: string; size_bytes: number; is_binary: boolean } | null>(null);
+  const [viewingSource, setViewingSource] = useState<{ file_name: string; relative_path: string; content: string; file_type: string; size_bytes: number; is_binary: boolean; target_line?: number } | null>(null);
   const [, setIsLoadingSourceContent] = useState(false);
   // Recherche & Encyclopédie structurée
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
@@ -1077,8 +1078,8 @@ export default function App() {
     return found ? found.label : catId.toUpperCase();
   };
 
-  // Naviguer et ouvrir directement la visionneuse pour une source ou note
-  const handleNavigateToSource = async (sourcePath: string) => {
+  // Naviguer et ouvrir directement la visionneuse pour une source ou note (avec ligne cible optionnelle)
+  const handleNavigateToSource = async (sourcePath: string, targetLine?: number) => {
     if (!sourcePath || !selectedTheater) return;
 
     // Si c'est un fichier spécifique (avec extension)
@@ -1087,7 +1088,7 @@ export default function App() {
         const res = await fetch(`/api/theaters/${selectedTheater}/sources/content?path=${encodeURIComponent(sourcePath)}`);
         if (res.ok) {
           const data = await res.json();
-          setViewingSource(data);
+          setViewingSource({ ...data, target_line: targetLine });
           return;
         }
       } catch (e) {
@@ -3710,7 +3711,7 @@ export default function App() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <button
-                        onClick={() => handleNavigateToSource(archivistPreviewCitation.source_file)}
+                        onClick={() => handleNavigateToSource(archivistPreviewCitation.source_file, archivistPreviewCitation.line_number)}
                         style={{
                           fontSize: '0.68rem',
                           color: '#0B0C10',
@@ -3723,7 +3724,7 @@ export default function App() {
                           gap: '3px'
                         }}
                       >
-                        <span>Ouvrir la source</span>
+                        <span>Ouvrir à la ligne {archivistPreviewCitation.line_number || 1}</span>
                         <ExternalLink size={9} />
                       </button>
                       <button
@@ -3883,10 +3884,10 @@ export default function App() {
                                   }}
                                   title={cit.snippet}
                                 >
-                                  <span>[{cIdx + 1}] {cit.source_file.replace('00_sources/', '')}</span>
+                                  <span>[{cIdx + 1}] {cit.source_file.replace('00_sources/', '')}{cit.line_number ? ` (l. ${cit.line_number})` : ''}</span>
                                 </button>
                                 <button
-                                  onClick={() => handleNavigateToSource(cit.source_file)}
+                                  onClick={() => handleNavigateToSource(cit.source_file, cit.line_number)}
                                   style={{
                                     padding: '2px 5px',
                                     borderRadius: '4px',
@@ -3894,7 +3895,7 @@ export default function App() {
                                     border: '1px solid var(--border)',
                                     color: 'var(--text-muted)'
                                   }}
-                                  title="Ouvrir le document complet"
+                                  title={`Ouvrir le document à la ligne ${cit.line_number || 1}`}
                                 >
                                   <ExternalLink size={10} />
                                 </button>
@@ -4262,7 +4263,7 @@ export default function App() {
                   </p>
                 </div>
               ) : (
-                /* Viewer Markdown & Texte enrichi */
+                /* Viewer Markdown & Texte enrichi avec repère et défilement sur ligne cible */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%' }}>
                   <div style={{
                     display: 'flex',
@@ -4275,26 +4276,85 @@ export default function App() {
                     fontSize: '0.82rem',
                     color: 'var(--gold)'
                   }}>
-                    <span>Visionneuse Markdown Canonique</span>
+                    <span>
+                      Visionneuse Markdown Canonique
+                      {viewingSource.target_line && ` • Alignement sur la ligne ${viewingSource.target_line}`}
+                    </span>
                     <span>{(viewingSource.size_bytes / 1024).toFixed(1)} KB • Encodage UTF-8</span>
                   </div>
-                  <pre style={{
-                    margin: 0,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.88rem',
-                    lineHeight: '1.7',
-                    color: 'var(--text-main)',
-                    background: 'rgba(0, 0, 0, 0.35)',
-                    padding: '24px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-subtle)',
-                    flex: 1,
-                    overflowY: 'auto'
-                  }}>
-                    {viewingSource.content}
-                  </pre>
+                  <div
+                    ref={(el) => {
+                      if (el && viewingSource.target_line) {
+                        const targetElem = el.querySelector(`[data-line="${viewingSource.target_line}"]`);
+                        if (targetElem) {
+                          targetElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }
+                    }}
+                    style={{
+                      margin: 0,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.86rem',
+                      lineHeight: '1.7',
+                      color: 'var(--text-main)',
+                      background: 'rgba(0, 0, 0, 0.35)',
+                      padding: '16px 20px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      flex: 1,
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column'
+                    }}
+                  >
+                    {viewingSource.content.split('\n').map((lineText, idx) => {
+                      const lineNum = idx + 1;
+                      const isHighlighted = viewingSource.target_line !== undefined && Math.abs(viewingSource.target_line - lineNum) <= 2;
+                      const isExactLine = viewingSource.target_line === lineNum;
+
+                      return (
+                        <div
+                          key={lineNum}
+                          data-line={lineNum}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            background: isExactLine
+                              ? 'rgba(212, 175, 55, 0.28)'
+                              : isHighlighted
+                              ? 'rgba(212, 175, 55, 0.08)'
+                              : 'transparent',
+                            borderLeft: isExactLine
+                              ? '3px solid var(--gold)'
+                              : '3px solid transparent',
+                            padding: '1px 8px',
+                            borderRadius: isExactLine ? '4px' : '0'
+                          }}
+                        >
+                          <span style={{
+                            width: '45px',
+                            userSelect: 'none',
+                            color: isExactLine ? 'var(--gold)' : 'var(--text-dim)',
+                            fontWeight: isExactLine ? 700 : 400,
+                            fontSize: '0.74rem',
+                            textAlign: 'right',
+                            paddingRight: '12px',
+                            flexShrink: 0
+                          }}>
+                            {lineNum}
+                          </span>
+                          <span style={{
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            flex: 1,
+                            color: isExactLine ? '#FFF' : 'inherit'
+                          }}>
+                            {lineText || ' '}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

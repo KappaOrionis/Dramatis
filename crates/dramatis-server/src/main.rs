@@ -1071,7 +1071,7 @@ async fn archivist_query_handler(
     matched_excerpts.clear();
 
     if !query_terms.is_empty() {
-        let mut candidate_snippets: Vec<(usize, String, String)> = Vec::new();
+        let mut candidate_snippets: Vec<(usize, String, Option<usize>, String)> = Vec::new();
 
         // Scan 00_sources/
         let sources_dir = theater_path.join("00_sources");
@@ -1103,38 +1103,69 @@ async fn archivist_query_handler(
                     .to_lowercase();
                 if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
-                        // Split by double newline supporting both CRLF and LF
-                        for chunk in content.split("\n\n").flat_map(|c| c.split("\r\n\r\n")) {
-                            let clean = chunk.trim();
-                            if clean.len() < 20 {
-                                continue;
-                            }
-                            let lower = clean.to_lowercase();
-                            let mut score = query_terms
-                                .iter()
-                                .filter(|term| lower.contains(term.as_str()))
-                                .count();
+                        let lines: Vec<&str> = content.lines().collect();
+                        let mut current_chunk_lines: Vec<String> = Vec::new();
+                        let mut chunk_start_line = 1;
 
-                            if has_maisons_query {
-                                if lower.contains("twelve houses") || lower.contains("houses of hermes") || lower.contains("douze maisons") {
-                                    score += 25;
+                        for (line_idx, line) in lines.iter().enumerate() {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() {
+                                if !current_chunk_lines.is_empty() {
+                                    let chunk_text = current_chunk_lines.join("\n");
+                                    let clean = chunk_text.trim();
+                                    if clean.len() >= 20 {
+                                        let lower = clean.to_lowercase();
+                                        let mut score = query_terms
+                                            .iter()
+                                            .filter(|term| lower.contains(term.as_str()))
+                                            .count();
+
+                                        if has_maisons_query {
+                                            if lower.contains("twelve houses") || lower.contains("houses of hermes") || lower.contains("douze maisons") {
+                                                score += 25;
+                                            }
+                                            if lower.contains("bjornaer") || lower.contains("bonisagus") || lower.contains("flambeau") {
+                                                score += 10;
+                                            }
+                                        }
+
+                                        if lower.contains("open license markdown version")
+                                            || lower.contains("crowdfunding backers")
+                                            || lower.contains("definitive edition the extensively revised")
+                                        {
+                                            score = 0;
+                                        }
+
+                                        if score > 0 {
+                                            let snippet: String = clean.chars().take(1200).collect();
+                                            candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
+                                        }
+                                    }
+                                    current_chunk_lines.clear();
                                 }
-                                if lower.contains("bjornaer") || lower.contains("bonisagus") || lower.contains("flambeau") {
-                                    score += 10;
+                                chunk_start_line = line_idx + 2;
+                            } else {
+                                if current_chunk_lines.is_empty() {
+                                    chunk_start_line = line_idx + 1;
                                 }
+                                current_chunk_lines.push(line.to_string());
                             }
+                        }
 
-                            // Heavily penalize boilerplate intro / index lines
-                            if lower.contains("open license markdown version")
-                                || lower.contains("crowdfunding backers")
-                                || lower.contains("definitive edition the extensively revised")
-                            {
-                                score = 0;
-                            }
-
-                            if score > 0 {
-                                let snippet: String = clean.chars().take(1200).collect();
-                                candidate_snippets.push((score, rel_path.clone(), snippet));
+                        // Process last chunk if remaining
+                        if !current_chunk_lines.is_empty() {
+                            let chunk_text = current_chunk_lines.join("\n");
+                            let clean = chunk_text.trim();
+                            if clean.len() >= 20 {
+                                let lower = clean.to_lowercase();
+                                let score = query_terms
+                                    .iter()
+                                    .filter(|term| lower.contains(term.as_str()))
+                                    .count();
+                                if score > 0 {
+                                    let snippet: String = clean.chars().take(1200).collect();
+                                    candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
+                                }
                             }
                         }
                     }
@@ -1166,23 +1197,35 @@ async fn archivist_query_handler(
                                     }
                                 }
                                 if let Ok(content) = std::fs::read_to_string(&p) {
-                                    for chunk in content.split("\n\n").flat_map(|c| c.split("\r\n\r\n")) {
-                                        let clean = chunk.trim();
-                                        if clean.len() < 15 || clean.starts_with("---") {
-                                            continue;
-                                        }
-                                        let lower = clean.to_lowercase();
-                                        let score = query_terms
-                                            .iter()
-                                            .filter(|term| lower.contains(term.as_str()))
-                                            .count();
-                                        if score > 0 {
-                                            let snippet: String = clean.chars().take(1200).collect();
-                                            candidate_snippets.push((
-                                                score,
-                                                rel_path.clone(),
-                                                snippet,
-                                            ));
+                                    let lines: Vec<&str> = content.lines().collect();
+                                    let mut current_chunk_lines: Vec<String> = Vec::new();
+                                    let mut chunk_start_line = 1;
+
+                                    for (line_idx, line) in lines.iter().enumerate() {
+                                        let trimmed = line.trim();
+                                        if trimmed.is_empty() {
+                                            if !current_chunk_lines.is_empty() {
+                                                let chunk_text = current_chunk_lines.join("\n");
+                                                let clean = chunk_text.trim();
+                                                if clean.len() >= 15 && !clean.starts_with("---") {
+                                                    let lower = clean.to_lowercase();
+                                                    let score = query_terms
+                                                        .iter()
+                                                        .filter(|term| lower.contains(term.as_str()))
+                                                        .count();
+                                                    if score > 0 {
+                                                        let snippet: String = clean.chars().take(1200).collect();
+                                                        candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
+                                                    }
+                                                }
+                                                current_chunk_lines.clear();
+                                            }
+                                            chunk_start_line = line_idx + 2;
+                                        } else {
+                                            if current_chunk_lines.is_empty() {
+                                                chunk_start_line = line_idx + 1;
+                                            }
+                                            current_chunk_lines.push(line.to_string());
                                         }
                                     }
                                 }
@@ -1194,12 +1237,12 @@ async fn archivist_query_handler(
         }
 
         candidate_snippets.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, rel_path, snippet) in candidate_snippets.into_iter().take(4) {
+        for (_, rel_path, line_no, snippet) in candidate_snippets.into_iter().take(4) {
             if !citations
                 .iter()
                 .any(|c| c.source_file == rel_path && c.snippet == snippet)
             {
-                citations.push(Citation::new(&rel_path, Some(1), &snippet));
+                citations.push(Citation::with_line(&rel_path, Some(1), line_no, &snippet));
                 matched_excerpts.push(snippet);
             }
         }
