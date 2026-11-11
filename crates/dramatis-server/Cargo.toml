@@ -18,7 +18,7 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace", "fs", "limit"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

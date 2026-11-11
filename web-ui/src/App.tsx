@@ -25,6 +25,8 @@ import {
   FileCode,
   FileType,
   ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
   Eye,
   X
 } from 'lucide-react';
@@ -402,7 +404,8 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Tri, filtrage et consultation des sources
-  const [sourceSortOrder, setSourceSortOrder] = useState<'name-asc' | 'name-desc' | 'type-asc' | 'size-desc' | 'size-asc'>('name-asc');
+  const [sourceSortOrder, setSourceSortOrder] = useState<'custom' | 'name-asc' | 'name-desc' | 'type-asc' | 'size-desc' | 'size-asc'>('custom');
+  const [customSourceOrder, setCustomSourceOrder] = useState<string[]>([]);
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
   const [viewingSource, setViewingSource] = useState<{ file_name: string; relative_path: string; content: string; file_type: string; size_bytes: number; is_binary: boolean } | null>(null);
   const [, setIsLoadingSourceContent] = useState(false);
@@ -471,7 +474,17 @@ export default function App() {
       ]);
 
       if (sigRes.ok) setSignalSheet(await sigRes.json());
-      if (srcRes.ok) setSourcesList(await srcRes.json());
+      if (srcRes.ok) {
+        const fetchedSources: SourceFileEntry[] = await srcRes.json();
+        setSourcesList(fetchedSources);
+        // Initialiser l'ordre personnalisé si vide ou nouveaux fichiers
+        setCustomSourceOrder((prev) => {
+          const fetchedNames = fetchedSources.map((s) => s.file_name);
+          const existing = prev.filter((name) => fetchedNames.includes(name));
+          const newOnes = fetchedNames.filter((name) => !existing.includes(name));
+          return [...existing, ...newOnes];
+        });
+      }
       if (wikiRes.ok) {
         const notes = await wikiRes.json();
         setWikiNotes(notes);
@@ -730,6 +743,33 @@ export default function App() {
     };
   };
 
+  const handleMoveSource = (fileName: string, direction: 'up' | 'down') => {
+    setSourceSortOrder('custom');
+    setCustomSourceOrder((prevOrder) => {
+      // S'assurer que tous les fichiers courants sont dans l'ordre
+      const allNames = sourcesList.map((s) => s.file_name);
+      const baseOrder = [...prevOrder.filter((n) => allNames.includes(n))];
+      for (const n of allNames) {
+        if (!baseOrder.includes(n)) baseOrder.push(n);
+      }
+
+      const index = baseOrder.indexOf(fileName);
+      if (index === -1) return baseOrder;
+
+      const newOrder = [...baseOrder];
+      if (direction === 'up' && index > 0) {
+        const temp = newOrder[index - 1];
+        newOrder[index - 1] = newOrder[index];
+        newOrder[index] = temp;
+      } else if (direction === 'down' && index < newOrder.length - 1) {
+        const temp = newOrder[index + 1];
+        newOrder[index + 1] = newOrder[index];
+        newOrder[index] = temp;
+      }
+      return newOrder;
+    });
+  };
+
   const sortedAndFilteredSources = [...sourcesList]
     .filter((src) => {
       if (sourceTypeFilter === 'all') return true;
@@ -737,6 +777,14 @@ export default function App() {
     })
     .sort((a, b) => {
       switch (sourceSortOrder) {
+        case 'custom': {
+          const indexA = customSourceOrder.indexOf(a.file_name);
+          const indexB = customSourceOrder.indexOf(b.file_name);
+          if (indexA === -1 && indexB === -1) return 0;
+          if (indexA === -1) return 1;
+          if (indexB === -1) return -1;
+          return indexA - indexB;
+        }
         case 'name-asc':
           return a.file_name.localeCompare(b.file_name);
         case 'name-desc':
@@ -1913,6 +1961,7 @@ export default function App() {
                       padding: '4px 8px'
                     }}
                   >
+                    <option value="custom">Personnalisé (manuel ↑↓)</option>
                     <option value="name-asc">Nom (A → Z)</option>
                     <option value="name-desc">Nom (Z → A)</option>
                     <option value="type-asc">Type de document</option>
@@ -1985,6 +2034,44 @@ export default function App() {
 
                         {/* Actions & Badge distinctif */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                          {/* Flèches pour remonter ou descendre le pill */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--surface-elevated)', borderRadius: '6px', border: '1px solid var(--border)', padding: '2px' }}>
+                            <button
+                              onClick={() => handleMoveSource(src.file_name, 'up')}
+                              disabled={idx === 0}
+                              style={{
+                                color: idx === 0 ? 'var(--text-muted)' : 'var(--text-main)',
+                                padding: '3px 4px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                                opacity: idx === 0 ? 0.35 : 1
+                              }}
+                              title="Monter le document"
+                            >
+                              <ChevronUp size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleMoveSource(src.file_name, 'down')}
+                              disabled={idx === sortedAndFilteredSources.length - 1}
+                              style={{
+                                color: idx === sortedAndFilteredSources.length - 1 ? 'var(--text-muted)' : 'var(--text-main)',
+                                padding: '3px 4px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: idx === sortedAndFilteredSources.length - 1 ? 'not-allowed' : 'pointer',
+                                opacity: idx === sortedAndFilteredSources.length - 1 ? 0.35 : 1
+                              }}
+                              title="Descendre le document"
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                          </div>
+
                           <span style={{
                             fontSize: '0.7rem',
                             fontWeight: 700,
@@ -3041,10 +3128,25 @@ export default function App() {
             <div style={{
               flex: 1,
               overflowY: 'auto',
-              padding: '20px',
-              background: 'var(--surface)'
+              padding: viewingSource.file_type.toLowerCase() === 'pdf' ? '0' : '20px',
+              background: 'var(--surface)',
+              display: 'flex',
+              flexDirection: 'column'
             }}>
-              {viewingSource.is_binary ? (
+              {viewingSource.file_type.toLowerCase() === 'pdf' ? (
+                /* Viewer PDF natif intégré via l'endpoint raw */
+                <iframe
+                  src={`/api/theaters/${selectedTheater}/sources/raw/${encodeURIComponent(viewingSource.file_name)}`}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    minHeight: '68vh',
+                    border: 'none',
+                    borderRadius: '0 0 14px 14px'
+                  }}
+                  title={viewingSource.file_name}
+                />
+              ) : viewingSource.is_binary ? (
                 <div style={{
                   padding: '40px 20px',
                   textAlign: 'center',
@@ -3058,25 +3160,44 @@ export default function App() {
                     {viewingSource.content}
                   </div>
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-dim)', maxWidth: '420px', lineHeight: 1.5 }}>
-                    Ce document PDF / binaire est indexé par Tantivy et LanceDB. L'Archiviste et les agents du harnais peuvent citer ses pages et extraits.
+                    Ce document binaire est indexé par Tantivy et LanceDB. L'Archiviste et les agents du harnais peuvent citer ses pages et extraits.
                   </p>
                 </div>
               ) : (
-                <pre style={{
-                  margin: 0,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.82rem',
-                  lineHeight: '1.6',
-                  color: 'var(--text-main)',
-                  background: 'rgba(0, 0, 0, 0.25)',
-                  padding: '16px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border-subtle)'
-                }}>
-                  {viewingSource.content}
-                </pre>
+                /* Viewer Markdown & Texte enrichi */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    background: 'var(--gold-surface)',
+                    border: '1px solid var(--border-gold)',
+                    fontSize: '0.78rem',
+                    color: 'var(--gold)'
+                  }}>
+                    <span>Visionneuse Markdown Canonique</span>
+                    <span>{(viewingSource.size_bytes / 1024).toFixed(1)} KB • Encodage UTF-8</span>
+                  </div>
+                  <pre style={{
+                    margin: 0,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.84rem',
+                    lineHeight: '1.65',
+                    color: 'var(--text-main)',
+                    background: 'rgba(0, 0, 0, 0.35)',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle)',
+                    maxHeight: '65vh',
+                    overflowY: 'auto'
+                  }}>
+                    {viewingSource.content}
+                  </pre>
+                </div>
               )}
             </div>
 

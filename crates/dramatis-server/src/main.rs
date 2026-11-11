@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode, Uri},
     response::IntoResponse,
     routing::{get, post},
@@ -798,6 +798,32 @@ async fn get_source_content_handler(
     }))
 }
 
+async fn get_source_raw_file_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, file_name)): Path<(String, String)>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let file_path = theater_path.join("00_sources").join(&file_name);
+
+    if !file_path.exists() || !file_path.is_file() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let bytes = std::fs::read(&file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, mime.as_ref().to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename=\"{}\"", file_name),
+            ),
+        ],
+        bytes,
+    ))
+}
+
 async fn get_theater_signals_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1317,6 +1343,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
         .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
         .route("/api/theaters/{id}/sources/content", get(get_source_content_handler))
+        .route("/api/theaters/{id}/sources/raw/{file_name}", get(get_source_raw_file_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler
@@ -1354,6 +1381,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/stage/logs", get(list_session_logs_handler))
         .route("/api/theaters/{id}/stage/rewind", post(rewind_stage_handler))
         .fallback(static_handler)
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50 MB max upload
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
