@@ -415,6 +415,21 @@ pub struct IngestMarkdownRequest {
     pub markdown_content: String,
 }
 
+#[derive(Deserialize)]
+pub struct UploadSourceRequest {
+    pub file_name: String,
+    pub content: String,
+}
+
+#[derive(Serialize)]
+pub struct UploadSourceResponse {
+    pub file_name: String,
+    pub relative_path: String,
+    pub size_bytes: usize,
+    pub sections_indexed: usize,
+    pub resolution: String,
+}
+
 #[derive(Serialize)]
 pub struct IngestMarkdownResponse {
     pub doc_id: String,
@@ -523,6 +538,77 @@ async fn ingest_markdown_handler(
         tables_extracted: tables_count,
         resolution: resolution_label,
         wikilinked_preview,
+    }))
+}
+
+async fn upload_source_file_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UploadSourceRequest>,
+) -> Result<Json<UploadSourceResponse>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let sources_dir = theater_path.join("00_sources");
+    std::fs::create_dir_all(&sources_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let safe_file_name = payload.file_name.trim();
+    if safe_file_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let source_path = sources_dir.join(safe_file_name);
+    std::fs::write(&source_path, payload.content.as_bytes())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let rel_path = format!("00_sources/{}", safe_file_name);
+    let doc_id = safe_file_name.to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '.', "_");
+
+    let sections: Vec<SectionNode> = MarkdownDocParser::parse(&payload.content);
+
+    let kg_path = theater_path.join("04_index/knowledge_graph.sqlite");
+    let res = EntityResolver::resolve(&kg_path, safe_file_name, &[])
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let resolution_label = match &res {
+        EntityResolutionResult::MergeWithExisting { canonical_title, score, .. } => {
+            format!("MergeWithExisting ({}, score {:.2})", canonical_title, score)
+        }
+        EntityResolutionResult::CreateNew { proposed_title } => {
+            format!("CreateNew ({})", proposed_title)
+        }
+        EntityResolutionResult::HumanReviewRequired { candidate_title, score, .. } => {
+            format!("HumanReviewRequired ({}, score {:.2})", candidate_title, score)
+        }
+    };
+
+    let index_dir = theater_path.join("04_index");
+    let mut engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let _ = engine.upsert_graph_entity(
+        &doc_id,
+        safe_file_name,
+        "sources",
+        &rel_path,
+        &payload.content.chars().take(240).collect::<String>(),
+    );
+
+    let _ = engine.index_document(
+        &doc_id,
+        safe_file_name,
+        &payload.content,
+        &rel_path,
+        Some(1),
+        None,
+    );
+
+    Ok(Json(UploadSourceResponse {
+        file_name: safe_file_name.to_string(),
+        relative_path: rel_path,
+        size_bytes: payload.content.len(),
+        sections_indexed: sections.len(),
+        resolution: resolution_label,
     }))
 }
 
@@ -1181,7 +1267,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/snapshots", get(list_snapshots_handler).post(create_snapshot_handler))
         .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
         .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
-        .route("/api/theaters/{id}/sources", get(list_sources_handler))
+        .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler

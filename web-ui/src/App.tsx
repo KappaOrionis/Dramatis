@@ -19,7 +19,9 @@ import {
   Edit2,
   ExternalLink,
   Bot,
-  SlidersHorizontal
+  SlidersHorizontal,
+  HardDrive,
+  CheckCircle2
 } from 'lucide-react';
 
 // Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
@@ -385,10 +387,14 @@ export default function App() {
   const [personae, setPersonae] = useState<any[]>([]);
   const [stageLogs, setStageLogs] = useState<any[]>([]);
 
-  // Injection directe de source
+  // Injection & Upload de source (Drag & Drop + Explorateur HDD)
   const [isAddingSource, setIsAddingSource] = useState(false);
   const [newSourceFileName, setNewSourceFileName] = useState('');
   const [newSourceContent, setNewSourceContent] = useState('');
+  const [isDraggingSource, setIsDraggingSource] = useState(false);
+  const [isUploadingSource, setIsUploadingSource] = useState(false);
+  const [sourceUploadFeedback, setSourceUploadFeedback] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Recherche & Encyclopédie
   const [wikiSearchQuery, setWikiSearchQuery] = useState('');
@@ -591,20 +597,87 @@ export default function App() {
     }
   };
 
+  const uploadSingleFile = async (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const text = event.target?.result;
+        if (typeof text !== 'string') {
+          resolve(false);
+          return;
+        }
+
+        try {
+          const res = await fetch(`/api/theaters/${selectedTheater}/sources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_name: file.name,
+              content: text
+            })
+          });
+          resolve(res.ok);
+        } catch (e) {
+          console.error(e);
+          resolve(false);
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsText(file);
+    });
+  };
+
+  const handleFilesUpload = async (files: FileList | File[]) => {
+    if (!files || files.length === 0 || !selectedTheater) return;
+    setIsUploadingSource(true);
+    setSourceUploadFeedback(null);
+
+    let successCount = 0;
+    const fileArray = Array.from(files);
+
+    for (const file of fileArray) {
+      const ok = await uploadSingleFile(file);
+      if (ok) successCount++;
+    }
+
+    setIsUploadingSource(false);
+    if (successCount > 0) {
+      setSourceUploadFeedback(`${successCount} document(s) importé(s) et indexé(s) avec succès !`);
+      setTimeout(() => setSourceUploadFeedback(null), 4000);
+      setIsAddingSource(false);
+      await loadTheaterAll(selectedTheater);
+    } else {
+      setSourceUploadFeedback(`Erreur lors de l'importation des documents.`);
+      setTimeout(() => setSourceUploadFeedback(null), 4000);
+    }
+  };
+
+  const handleDropFiles = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingSource(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesUpload(e.dataTransfer.files);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFilesUpload(e.target.files);
+      e.target.value = '';
+    }
+  };
+
   const handleSaveDirectSource = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSourceFileName.trim() || !newSourceContent.trim()) return;
 
     try {
-      const slug = newSourceFileName.toLowerCase().replace(/[^a-z0-9.]+/g, '_');
-      const res = await fetch(`/api/theaters/${selectedTheater}/ingest/markdown`, {
+      const res = await fetch(`/api/theaters/${selectedTheater}/sources`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          doc_id: slug,
-          title: newSourceFileName,
-          category: 'sources',
-          markdown_content: newSourceContent
+          file_name: newSourceFileName.trim(),
+          content: newSourceContent
         })
       });
 
@@ -612,6 +685,8 @@ export default function App() {
         setIsAddingSource(false);
         setNewSourceFileName('');
         setNewSourceContent('');
+        setSourceUploadFeedback(`Source "${newSourceFileName}" indexée avec succès.`);
+        setTimeout(() => setSourceUploadFeedback(null), 3000);
         loadTheaterAll(selectedTheater);
       }
     } catch (err) {
@@ -1515,23 +1590,50 @@ export default function App() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileInputChange}
+                    multiple
+                    accept=".md,.txt,.json,.yaml,.yml,.pdf"
+                    style={{ display: 'none' }}
+                  />
+
                   <button
-                    onClick={() => setIsAddingSource(true)}
+                    onClick={() => fileInputRef.current?.click()}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '6px',
-                      padding: '8px 14px',
+                      gap: '8px',
+                      padding: '8px 16px',
                       borderRadius: '8px',
-                      background: 'var(--gold-surface)',
+                      background: 'var(--surface-elevated)',
                       border: '1px solid var(--border-gold)',
                       color: 'var(--gold)',
                       fontWeight: 600,
                       fontSize: '0.85rem'
                     }}
                   >
+                    <HardDrive size={16} />
+                    <span>Sélectionner sur le disque</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsAddingSource(!isAddingSource)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-main)',
+                      fontSize: '0.85rem'
+                    }}
+                  >
                     <Upload size={14} />
-                    <span>+ Ajouter une Source</span>
+                    <span>Saisir / Coller</span>
                   </button>
 
                   <button
@@ -1552,6 +1654,75 @@ export default function App() {
                     <ArrowRight size={14} />
                   </button>
                 </div>
+              </div>
+
+              {/* Message de notification d'upload */}
+              {sourceUploadFeedback && (
+                <div style={{
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  background: 'var(--gold-surface)',
+                  border: '1px solid var(--border-gold)',
+                  color: 'var(--gold)',
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <CheckCircle2 size={16} />
+                  <span>{sourceUploadFeedback}</span>
+                </div>
+              )}
+
+              {/* Zone principale moderne Drag & Drop et Sélection Disque */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingSource(true); }}
+                onDragLeave={() => setIsDraggingSource(false)}
+                onDrop={handleDropFiles}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  border: isDraggingSource ? '2px dashed var(--gold)' : '2px dashed var(--border-gold)',
+                  background: isDraggingSource ? 'rgba(212, 175, 55, 0.08)' : 'var(--surface)',
+                  borderRadius: '14px',
+                  padding: '36px 24px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '12px'
+                }}
+              >
+                <div style={{
+                  width: '54px',
+                  height: '54px',
+                  borderRadius: '50%',
+                  background: 'var(--gold-surface)',
+                  border: '1px solid var(--border-gold)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--gold)'
+                }}>
+                  <Upload size={24} />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                    Glissez-déposez vos fichiers ici, ou cliquez pour parcourir votre disque
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    Formats supportés : <strong>.md, .txt, .json, .yaml, .pdf</strong> (règles officielles, manuels, contextes)
+                  </div>
+                </div>
+
+                {isUploadingSource && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontSize: '0.85rem' }}>
+                    <Sparkles size={16} className="spin" />
+                    <span>Indexation canonique en cours dans le bac à sable...</span>
+                  </div>
+                )}
               </div>
 
               {/* Formulaire d'ajout de source */}
@@ -1684,20 +1855,39 @@ export default function App() {
                       L'Archiviste et les agents appliquent la règle stricte du bac à sable : ils n'inventent aucun contenu.
                       Ajoutez votre premier document pour que l'univers s'enrichisse.
                     </p>
-                    <button
-                      onClick={() => setIsAddingSource(true)}
-                      style={{
-                        marginTop: '8px',
-                        background: 'var(--gold)',
-                        color: '#0B0C10',
-                        fontWeight: 700,
-                        padding: '8px 18px',
-                        borderRadius: '6px',
-                        fontSize: '0.85rem'
-                      }}
-                    >
-                      + Ajouter un premier document
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{
+                          background: 'var(--gold)',
+                          color: '#0B0C10',
+                          fontWeight: 700,
+                          padding: '8px 18px',
+                          borderRadius: '6px',
+                          fontSize: '0.85rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <HardDrive size={15} />
+                        <span>Sélectionner sur le disque</span>
+                      </button>
+
+                      <button
+                        onClick={() => setIsAddingSource(true)}
+                        style={{
+                          background: 'var(--surface-elevated)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          padding: '8px 14px',
+                          borderRadius: '6px',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        Saisir / Coller du texte
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
