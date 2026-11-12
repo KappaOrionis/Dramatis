@@ -1246,7 +1246,7 @@ export default function App() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setCurrentView('landing')}>
                 <DramatisLogo size={26} />
                 <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.25rem', color: 'var(--text-main)', letterSpacing: '0.02em' }}>
-                  Dramatis <span style={{ color: 'var(--gold)', fontWeight: 400, fontSize: '1rem' }}>Notebook</span>
+                  Dramatis <span style={{ color: 'var(--gold)', fontWeight: 400, fontSize: '1rem' }}>Univers</span>
                 </span>
               </div>
 
@@ -1277,7 +1277,7 @@ export default function App() {
                     border: landingTab === 'mine' ? '1px solid var(--border)' : '1px solid transparent'
                   }}
                 >
-                  Mes carnets
+                  Mes univers
                 </button>
                 <button
                   onClick={() => setLandingTab('discover')}
@@ -1394,11 +1394,11 @@ export default function App() {
 
           {/* Corps de la Landing Page */}
           <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '36px 32px' }}>
-            {/* Titre & Bouton d'action "+ Nouveau carnet / univers" */}
+            {/* Titre & Bouton d'action "+ Nouvel univers" */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <h2 style={{ fontSize: '1.45rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '0.01em' }}>
-                  Mes carnets d'univers
+                  Mes univers
                 </h2>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
                   ({theaters.length})
@@ -1423,7 +1423,7 @@ export default function App() {
                 }}
               >
                 <Plus size={18} strokeWidth={2.5} />
-                <span>Nouveau carnet</span>
+                <span>Nouvel univers</span>
               </button>
             </div>
 
@@ -1716,7 +1716,7 @@ export default function App() {
             <div
               onClick={() => setCurrentView('landing')}
               style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
-              title="Retour à l'accueil des carnets"
+              title="Retour à la liste des univers"
             >
               <DramatisLogo size={24} />
               <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)', letterSpacing: '0.08em' }}>
