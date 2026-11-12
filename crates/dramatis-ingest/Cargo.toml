@@ -19,6 +19,7 @@ hex = { workspace = true }
 pulldown-cmark = { version = "0.12", default-features = true }
 calamine = "0.24"
 rusqlite = { version = "0.31", features = ["bundled"] }
+pdf-extract = "0.12.1"
 
 [dev-dependencies]
 tempfile = "3.17"

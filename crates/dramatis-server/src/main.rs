@@ -424,6 +424,7 @@ pub struct IngestMarkdownRequest {
 pub struct UploadSourceRequest {
     pub file_name: String,
     pub content: String,
+    pub is_base64: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -565,13 +566,35 @@ async fn upload_source_file_handler(
     }
 
     let source_path = sources_dir.join(safe_file_name);
-    std::fs::write(&source_path, payload.content.as_bytes())
+    let bytes = if payload.is_base64.unwrap_or(false) {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(payload.content.as_bytes())
+            .map_err(|_| StatusCode::BAD_REQUEST)?
+    } else {
+        payload.content.as_bytes().to_vec()
+    };
+
+    std::fs::write(&source_path, &bytes)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rel_path = format!("00_sources/{}", safe_file_name);
     let doc_id = safe_file_name.to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '.', "_");
 
-    let sections: Vec<SectionNode> = MarkdownDocParser::parse(&payload.content);
+    // Extract text for indexing: if PDF, use PdfDocParser, otherwise parse as markdown
+    let ext = source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let text_content = if ext == "pdf" {
+        dramatis_ingest::PdfDocParser::extract_text_from_bytes(&bytes).unwrap_or_default()
+    } else {
+        String::from_utf8_lossy(&bytes).to_string()
+    };
+
+    let sections: Vec<SectionNode> = MarkdownDocParser::parse(&text_content);
 
     let kg_path = theater_path.join("04_index/knowledge_graph.sqlite");
     let res = EntityResolver::resolve(&kg_path, safe_file_name, &[])
@@ -598,7 +621,7 @@ async fn upload_source_file_handler(
         safe_file_name,
         "sources",
         &rel_path,
-        &payload.content.chars().take(240).collect::<String>(),
+        &text_content.chars().take(240).collect::<String>(),
     );
 
     // Index sections or chunks into Tantivy & Knowledge Graph
@@ -606,7 +629,7 @@ async fn upload_source_file_handler(
         let _ = engine.index_document(
             &doc_id,
             safe_file_name,
-            &payload.content,
+            &text_content,
             &rel_path,
             Some(1),
             None,
@@ -633,8 +656,8 @@ async fn upload_source_file_handler(
     Ok(Json(UploadSourceResponse {
         file_name: safe_file_name.to_string(),
         relative_path: rel_path,
-        size_bytes: payload.content.len(),
-        sections_indexed: sections.len(),
+        size_bytes: bytes.len(),
+        sections_indexed: if sections.is_empty() { 1 } else { sections.len() },
         resolution: resolution_label,
     }))
 }
@@ -1054,13 +1077,47 @@ async fn archivist_query_handler(
     }
 
     // 2. Direct paragraph & section scan across 00_sources/ and 01_wiki/ for NotebookLM-style precision
-    let query_terms: Vec<String> = payload
+    let raw_terms: Vec<String> = payload
         .query
         .to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 3)
         .map(|s| s.to_string())
         .collect();
+
+    let mut query_terms = raw_terms.clone();
+    // Bilingual French -> English query expansions for RPG corpus
+    for term in &raw_terms {
+        match term.as_str() {
+            "regles" | "règles" | "regle" | "règle" => {
+                query_terms.push("rule".to_string());
+                query_terms.push("rules".to_string());
+                query_terms.push("mechanic".to_string());
+            }
+            "cadre" | "univers" | "monde" => {
+                query_terms.push("setting".to_string());
+                query_terms.push("mythic".to_string());
+                query_terms.push("europe".to_string());
+                query_terms.push("background".to_string());
+            }
+            "maison" | "maisons" => {
+                query_terms.push("house".to_string());
+                query_terms.push("houses".to_string());
+                query_terms.push("lineage".to_string());
+            }
+            "mage" | "mages" | "magicien" | "magiciens" => {
+                query_terms.push("magus".to_string());
+                query_terms.push("magi".to_string());
+                query_terms.push("wizard".to_string());
+            }
+            "liste" | "exhaustif" | "officielle" | "officiel" => {
+                query_terms.push("contents".to_string());
+                query_terms.push("chapter".to_string());
+                query_terms.push("magi".to_string());
+            }
+            _ => {}
+        }
+    }
 
     // Specific bonus for query intent (e.g., "maisons", "houses", combat)
     let has_maisons_query = payload.query.to_lowercase().contains("maison")
@@ -1107,11 +1164,18 @@ async fn archivist_query_handler(
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
-                if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let lines: Vec<&str> = content.lines().collect();
-                        let mut current_chunk_lines: Vec<String> = Vec::new();
-                        let mut chunk_start_line = 1;
+                let file_content = if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
+                    std::fs::read_to_string(&path).ok()
+                } else if ext == "pdf" {
+                    dramatis_ingest::PdfDocParser::extract_text(&path).ok()
+                } else {
+                    None
+                };
+
+                if let Some(content) = file_content {
+                    let lines: Vec<&str> = content.lines().collect();
+                    let mut current_chunk_lines: Vec<String> = Vec::new();
+                    let mut chunk_start_line = 1;
 
                         for (line_idx, line) in lines.iter().enumerate() {
                             let trimmed = line.trim();
@@ -1189,7 +1253,6 @@ async fn archivist_query_handler(
                     }
                 }
             }
-        }
 
         // Scan 01_wiki/ if no strict source filter or if wiki is included
         let wiki_dir = theater_path.join("01_wiki");

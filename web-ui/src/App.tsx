@@ -667,21 +667,47 @@ export default function App() {
 
   const uploadSingleFile = async (file: File): Promise<boolean> => {
     return new Promise((resolve) => {
+      const isBinary = file.name.toLowerCase().endsWith('.pdf') || 
+                       file.name.toLowerCase().endsWith('.png') || 
+                       file.name.toLowerCase().endsWith('.jpg') || 
+                       file.name.toLowerCase().endsWith('.webp');
+
       const reader = new FileReader();
       reader.onload = async (event) => {
-        const text = event.target?.result;
-        if (typeof text !== 'string') {
-          resolve(false);
-          return;
-        }
-
         try {
+          let payloadContent: string;
+          let isBase64 = false;
+
+          if (isBinary) {
+            const buffer = event.target?.result as ArrayBuffer;
+            if (!buffer) {
+              resolve(false);
+              return;
+            }
+            // Convert ArrayBuffer to base64 safely
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            payloadContent = btoa(binary);
+            isBase64 = true;
+          } else {
+            const text = event.target?.result;
+            if (typeof text !== 'string') {
+              resolve(false);
+              return;
+            }
+            payloadContent = text;
+          }
+
           const res = await fetch(`/api/theaters/${selectedTheater}/sources`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               file_name: file.name,
-              content: text
+              content: payloadContent,
+              is_base64: isBase64
             })
           });
           resolve(res.ok);
@@ -691,7 +717,12 @@ export default function App() {
         }
       };
       reader.onerror = () => resolve(false);
-      reader.readAsText(file);
+
+      if (isBinary) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file);
+      }
     });
   };
 
