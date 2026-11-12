@@ -29,7 +29,10 @@ import {
   ChevronDown,
   Eye,
   Terminal,
-  X
+  X,
+  Grid,
+  List,
+  FolderOpen
 } from 'lucide-react';
 
 // Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
@@ -66,6 +69,18 @@ function DramatisLogo({ size = 22 }: { size?: number }) {
 interface TheaterSnapshot {
   commit_hash: string;
   message: string;
+}
+
+interface TheaterSummary {
+  theater_id: string;
+  name: string;
+  system_preset: string;
+  description: string;
+  sources_count: number;
+  wiki_count: number;
+  personae_count: number;
+  last_modified?: string;
+  icon_emoji: string;
 }
 
 interface SourceFileEntry {
@@ -363,11 +378,20 @@ const HARNESS_AGENTS_SPECS: AgentDetailedSpec[] = [
 ];
 
 export default function App() {
+  // Navigation principale : Landing Page (style Gemini Notebook) ou Vue Studio de l'univers actif
+  const [currentView, setCurrentView] = useState<'landing' | 'studio'>('landing');
+
+  // Filtre et recherche sur la Landing Page
+  const [landingSearch, setLandingSearch] = useState('');
+  const [landingTab, setLandingTab] = useState<'all' | 'mine' | 'discover'>('all');
+  const [landingViewMode, setLandingViewMode] = useState<'grid' | 'list'>('grid');
+
   // Parcours progressif : 1 = Présentation, 2 = Sources, 3 = Carnet / Encyclopédie, 4 = Table de Jeu
   const [activeStep, setActiveStep] = useState<'signal' | 'sources' | 'wiki' | 'stage'>('signal');
-  const [theaters, setTheaters] = useState<string[]>(['Anastasius.dramatis', 'ArsMagica.dramatis', 'Shadowrun.dramatis']);
-  const [selectedTheater, setSelectedTheater] = useState<string>('Anastasius.dramatis');
-  const [pinnedTheaters, setPinnedTheaters] = useState<string[]>(['Anastasius.dramatis']);
+  const [theaters, setTheaters] = useState<string[]>(['ArsMagica.dramatis', 'Shadowrun.dramatis']);
+  const [theatersSummaries, setTheatersSummaries] = useState<TheaterSummary[]>([]);
+  const [selectedTheater, setSelectedTheater] = useState<string>('ArsMagica.dramatis');
+  const [pinnedTheaters, setPinnedTheaters] = useState<string[]>(['ArsMagica.dramatis']);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -493,11 +517,24 @@ export default function App() {
     try {
       const res = await fetch('/api/theaters');
       if (res.ok) {
-        const data: string[] = await res.json();
-        if (data.length > 0) {
-          setTheaters(data);
-          if (!data.includes(selectedTheater)) {
-            setSelectedTheater(data[0]);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          // Si le backend renvoie des TheaterSummary
+          if (typeof data[0] === 'object' && data[0] !== null) {
+            const summaries = data as TheaterSummary[];
+            setTheatersSummaries(summaries);
+            const ids = summaries.map((s) => s.theater_id);
+            setTheaters(ids);
+            if (!ids.includes(selectedTheater)) {
+              setSelectedTheater(ids[0]);
+            }
+          } else {
+            // Rétrocompatibilité avec chaînes simples
+            const ids = data as string[];
+            setTheaters(ids);
+            if (!ids.includes(selectedTheater)) {
+              setSelectedTheater(ids[0]);
+            }
           }
         }
       }
@@ -543,7 +580,7 @@ export default function App() {
       if (detailsRes.ok) {
         const det: TheaterDetails = await detailsRes.json();
         setTheaterDetails(det);
-        
+
         // Initialiser la configuration locale des 7 agents
         const initialRouting: Record<string, string> = {};
         const initialParams: Record<string, any> = {};
@@ -667,10 +704,10 @@ export default function App() {
 
   const uploadSingleFile = async (file: File): Promise<boolean> => {
     return new Promise((resolve) => {
-      const isBinary = file.name.toLowerCase().endsWith('.pdf') || 
-                       file.name.toLowerCase().endsWith('.png') || 
-                       file.name.toLowerCase().endsWith('.jpg') || 
-                       file.name.toLowerCase().endsWith('.webp');
+      const isBinary = file.name.toLowerCase().endsWith('.pdf') ||
+        file.name.toLowerCase().endsWith('.png') ||
+        file.name.toLowerCase().endsWith('.jpg') ||
+        file.name.toLowerCase().endsWith('.webp');
 
       const reader = new FileReader();
       reader.onload = async (event) => {
@@ -1059,10 +1096,17 @@ export default function App() {
 
   // Nom d'affichage épuré de carnet
   const getDisplayName = (th: string) => {
+    const summary = theatersSummaries.find((s) => s.theater_id === th);
+    if (summary?.name) return summary.name;
     if (th === selectedTheater && signalSheet?.name) {
       return signalSheet.name;
     }
     return th.replace('.dramatis', '');
+  };
+
+  const getTheaterIcon = (th: string) => {
+    const summary = theatersSummaries.find((s) => s.theater_id === th);
+    return summary?.icon_emoji || '🎲';
   };
 
   // Analyse et structuration d'une fiche Wiki (extraction frontmatter YAML, blocs secrets MJ, titre humain)
@@ -1171,7 +1215,481 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
-      
+
+      {/* =========================================================================
+          0. LANDING PAGE STYLE GEMINI NOTEBOOK (ACCUEIL & GESTION DES UNIVERS)
+         ========================================================================= */}
+      {currentView === 'landing' ? (
+        <div style={{
+          flex: 1,
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#0B0C10',
+          overflowY: 'auto'
+        }}>
+          {/* Top Bar Landing style Notebook */}
+          <header style={{
+            height: '64px',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 32px',
+            background: 'rgba(11, 12, 16, 0.95)',
+            position: 'sticky',
+            top: 0,
+            zIndex: 20
+          }}>
+            {/* Logo & Navigation Tabs */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setCurrentView('landing')}>
+                <DramatisLogo size={26} />
+                <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.25rem', color: 'var(--text-main)', letterSpacing: '0.02em' }}>
+                  Dramatis <span style={{ color: 'var(--gold)', fontWeight: 400, fontSize: '1rem' }}>Notebook</span>
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={() => setLandingTab('all')}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    background: landingTab === 'all' ? 'var(--surface-elevated)' : 'transparent',
+                    color: landingTab === 'all' ? 'var(--text-main)' : 'var(--text-dim)',
+                    border: landingTab === 'all' ? '1px solid var(--border)' : '1px solid transparent'
+                  }}
+                >
+                  Tous
+                </button>
+                <button
+                  onClick={() => setLandingTab('mine')}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    background: landingTab === 'mine' ? 'var(--surface-elevated)' : 'transparent',
+                    color: landingTab === 'mine' ? 'var(--text-main)' : 'var(--text-dim)',
+                    border: landingTab === 'mine' ? '1px solid var(--border)' : '1px solid transparent'
+                  }}
+                >
+                  Mes carnets
+                </button>
+                <button
+                  onClick={() => setLandingTab('discover')}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: landingTab === 'discover' ? 'var(--surface-elevated)' : 'transparent',
+                    color: landingTab === 'discover' ? 'var(--gold)' : 'var(--text-dim)',
+                    border: landingTab === 'discover' ? '1px solid var(--border-gold)' : '1px solid transparent'
+                  }}
+                >
+                  <Compass size={14} />
+                  <span>Découvrir</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Barre de Recherche centrale + Vue Grille/Liste + Bouton Profil */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                width: '320px'
+              }}>
+                <Search size={15} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
+                <input
+                  type="text"
+                  placeholder="Rechercher des univers..."
+                  value={landingSearch}
+                  onChange={(e) => setLandingSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 36px',
+                    borderRadius: '20px',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.85rem',
+                    outline: 'none'
+                  }}
+                />
+                {landingSearch && (
+                  <button
+                    onClick={() => setLandingSearch('')}
+                    style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px' }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Sélecteur Vue Grille / Liste */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '2px'
+              }}>
+                <button
+                  onClick={() => setLandingViewMode('grid')}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    background: landingViewMode === 'grid' ? 'var(--surface)' : 'transparent',
+                    color: landingViewMode === 'grid' ? 'var(--gold)' : 'var(--text-dim)',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Vue Grille"
+                >
+                  <Grid size={15} />
+                </button>
+                <button
+                  onClick={() => setLandingViewMode('list')}
+                  style={{
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    background: landingViewMode === 'list' ? 'var(--surface)' : 'transparent',
+                    color: landingViewMode === 'list' ? 'var(--gold)' : 'var(--text-dim)',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Vue Liste"
+                >
+                  <List size={15} />
+                </button>
+              </div>
+
+              {/* Avatar Utilisateur (F) */}
+              <div style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '0.85rem'
+              }}>
+                D
+              </div>
+            </div>
+          </header>
+
+          {/* Corps de la Landing Page */}
+          <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '36px 32px' }}>
+            {/* Titre & Bouton d'action "+ Nouveau carnet / univers" */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '0.01em' }}>
+                  Mes carnets d'univers
+                </h2>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
+                  ({theaters.length})
+                </span>
+              </div>
+
+              <button
+                onClick={() => setIsWorkspaceModalOpen(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'var(--gold)',
+                  color: '#0B0C10',
+                  fontWeight: 700,
+                  fontSize: '0.88rem',
+                  padding: '10px 20px',
+                  borderRadius: '24px',
+                  boxShadow: '0 4px 14px rgba(212, 175, 55, 0.25)',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Plus size={18} strokeWidth={2.5} />
+                <span>Nouveau carnet</span>
+              </button>
+            </div>
+
+            {/* Grille ou Liste de Cartes style Gemini Notebook */}
+            {landingViewMode === 'grid' ? (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))',
+                gap: '16px'
+              }}>
+                {theaters
+                  .filter((th) => {
+                    if (!landingSearch) return true;
+                    const searchLower = landingSearch.toLowerCase();
+                    const name = getDisplayName(th).toLowerCase();
+                    return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                  })
+                  .map((th) => {
+                    const isPinned = pinnedTheaters.includes(th);
+                    const summary = theatersSummaries.find((s) => s.theater_id === th);
+                    const displayName = getDisplayName(th);
+                    const icon = getTheaterIcon(th);
+                    const sourcesCount = summary?.sources_count ?? 0;
+                    const lastDate = summary?.last_modified || 'Récemment';
+
+                    return (
+                      <div
+                        key={th}
+                        onClick={() => {
+                          setSelectedTheater(th);
+                          setCurrentView('studio');
+                          setActiveStep('signal');
+                        }}
+                        style={{
+                          background: '#16181E',
+                          border: th === selectedTheater ? '1px solid rgba(212, 175, 55, 0.5)' : '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: '16px',
+                          padding: '18px 18px 14px 18px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          minHeight: '140px',
+                          cursor: 'pointer',
+                          position: 'relative',
+                          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.borderColor = 'var(--gold)';
+                          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.borderColor = th === selectedTheater ? 'rgba(212, 175, 55, 0.5)' : 'rgba(255, 255, 255, 0.06)';
+                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+                        }}
+                      >
+                        {/* En-tête de carte : Icône Emoji + Menu 3 points */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>{icon}</span>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {isPinned && <Pin size={12} color="var(--gold)" />}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuTheater(openMenuTheater === th ? null : th);
+                              }}
+                              style={{
+                                padding: '4px',
+                                borderRadius: '50%',
+                                color: 'var(--text-dim)',
+                                background: 'transparent'
+                              }}
+                            >
+                              <MoreVertical size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Menu contextuel popover de carte */}
+                        {openMenuTheater === th && (
+                          <div
+                            ref={menuRef}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: 'absolute',
+                              right: '12px',
+                              top: '46px',
+                              background: 'var(--surface)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '8px',
+                              padding: '4px',
+                              width: '140px',
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                              zIndex: 100,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px'
+                            }}
+                          >
+                            <button
+                              onClick={() => {
+                                if (isPinned) setPinnedTheaters(pinnedTheaters.filter(p => p !== th));
+                                else setPinnedTheaters([...pinnedTheaters, th]);
+                                setOpenMenuTheater(null);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                fontSize: '0.8rem',
+                                color: 'var(--text-main)',
+                                width: '100%'
+                              }}
+                            >
+                              <Pin size={13} color="var(--gold)" />
+                              <span>{isPinned ? 'Désépingler' : 'Épingler'}</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRenamingTheater(th);
+                                setRenamedTitle(getDisplayName(th));
+                                setOpenMenuTheater(null);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                fontSize: '0.8rem',
+                                color: 'var(--text-main)',
+                                width: '100%'
+                              }}
+                            >
+                              <Edit2 size={13} color="var(--gold)" />
+                              <span>Renommer</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteWorkspace(th)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                fontSize: '0.8rem',
+                                color: 'var(--red)',
+                                width: '100%'
+                              }}
+                            >
+                              <Trash2 size={13} color="var(--red)" />
+                              <span>Supprimer</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Titre & Métadonnées style NotebookLM */}
+                        <div style={{ marginTop: '16px' }}>
+                          <h3 style={{
+                            fontSize: '0.94rem',
+                            fontWeight: 600,
+                            color: 'var(--text-main)',
+                            marginBottom: '6px',
+                            lineHeight: 1.3,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical'
+                          }}>
+                            {displayName}
+                          </h3>
+
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>{lastDate}</span>
+                            <span>•</span>
+                            <span>{sourcesCount} {sourcesCount > 1 ? 'sources' : 'source'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              /* Vue Liste style Notebook */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {theaters
+                  .filter((th) => {
+                    if (!landingSearch) return true;
+                    const searchLower = landingSearch.toLowerCase();
+                    const name = getDisplayName(th).toLowerCase();
+                    return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                  })
+                  .map((th) => {
+                    const summary = theatersSummaries.find((s) => s.theater_id === th);
+                    const displayName = getDisplayName(th);
+                    const icon = getTheaterIcon(th);
+                    const sourcesCount = summary?.sources_count ?? 0;
+                    const lastDate = summary?.last_modified || 'Récemment';
+
+                    return (
+                      <div
+                        key={th}
+                        onClick={() => {
+                          setSelectedTheater(th);
+                          setCurrentView('studio');
+                          setActiveStep('signal');
+                        }}
+                        style={{
+                          background: '#16181E',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: '10px',
+                          padding: '12px 18px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                          <span style={{ fontSize: '1.3rem' }}>{icon}</span>
+                          <div>
+                            <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName}</div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>
+                              {summary?.system_preset || 'Système déduit'} • {sourcesCount} sources
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>{lastDate}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedTheater(th);
+                              setCurrentView('studio');
+                              setActiveStep('signal');
+                            }}
+                            style={{
+                              padding: '6px 14px',
+                              borderRadius: '6px',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border-gold)',
+                              color: 'var(--gold)',
+                              fontSize: '0.8rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            Ouvrir
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* VUE STUDIO DE L'UNIVERS ACTIF */
+        <>
       {/* =========================================================================
           1. SIDEBAR NOTEBOOKLM : CARNETS, PARCOURS & ACTIONS
          ========================================================================= */}
@@ -1185,7 +1703,7 @@ export default function App() {
         flexShrink: 0,
         zIndex: 10
       }}>
-        {/* En-tête Sidebar */}
+        {/* En-tête Sidebar avec retour Accueil Landing */}
         <div style={{
           height: '52px',
           display: 'flex',
@@ -1195,14 +1713,22 @@ export default function App() {
           borderBottom: '1px solid var(--border-subtle)'
         }}>
           {!isSidebarCollapsed && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              onClick={() => setCurrentView('landing')}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+              title="Retour à l'accueil des carnets"
+            >
               <DramatisLogo size={24} />
               <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)', letterSpacing: '0.08em' }}>
                 DRAMATIS
               </span>
             </div>
           )}
-          {isSidebarCollapsed && <DramatisLogo size={24} />}
+          {isSidebarCollapsed && (
+            <div onClick={() => setCurrentView('landing')} style={{ cursor: 'pointer' }}>
+              <DramatisLogo size={24} />
+            </div>
+          )}
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
             style={{ padding: '6px', borderRadius: '6px', color: 'var(--text-muted)' }}
@@ -1213,7 +1739,7 @@ export default function App() {
 
         {/* Corps scrollable */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
+
           {/* SECTION UNIVERS */}
           <div>
             {!isSidebarCollapsed && (
@@ -1523,7 +2049,7 @@ export default function App() {
           2. CANEVAS PRINCIPAL
          ========================================================================= */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-        
+
         {/* En-tête supérieur */}
         <header style={{
           height: '52px',
@@ -1535,8 +2061,28 @@ export default function App() {
           background: 'rgba(11, 12, 16, 0.8)',
           backdropFilter: 'blur(8px)'
         }}>
-          {/* Stepper épuré */}
+          {/* Stepper épuré avec bouton Retour Accueil */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '0.85rem' }}>
+            <button
+              onClick={() => setCurrentView('landing')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-muted)',
+                fontSize: '0.78rem',
+                fontWeight: 500
+              }}
+              title="Retour à la liste de tous les univers"
+            >
+              <FolderOpen size={13} color="var(--gold)" />
+              <span>Tous les univers</span>
+            </button>
+            <div style={{ width: '1px', height: '16px', background: 'var(--border)' }} />
             <span
               onClick={() => setActiveStep('signal')}
               style={{
@@ -1606,11 +2152,11 @@ export default function App() {
 
         {/* Contenu de l'étape active */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-          
+
           {/* ÉTAPE 1 : PRÉSENTATION DE L'UNIVERS (FICHE SIGNALÉTIQUE HARMONIEUSE OR/NOCTURNE AVEC SOURCES DÉTAILLÉES) */}
           {activeStep === 'signal' && signalSheet && (
             <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              
+
               {/* En-tête */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
@@ -2338,7 +2884,7 @@ export default function App() {
           {/* ÉTAPE 3 : ENCYCLOPÉDIE & NOTES (CODEX STRUCTURÉ PAR CATÉGORIES & SANS FRONTMATTER BRUT) */}
           {activeStep === 'wiki' && (
             <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              
+
               {/* En-tête de l'Encyclopédie */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
@@ -2591,7 +3137,7 @@ export default function App() {
 
               {/* Disposition 2 colonnes : Index des fiches à gauche (320px) + Fiche structurée à droite */}
               <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', alignItems: 'start' }}>
-                
+
                 {/* Colonne gauche : Explorateur de fiches */}
                 <div style={{
                   background: 'var(--surface)',
@@ -2675,7 +3221,7 @@ export default function App() {
                     const parsed = parseWikiMarkdown(selectedWikiNote);
                     return (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        
+
                         {/* En-tête de la fiche */}
                         <div style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
@@ -2922,7 +3468,7 @@ export default function App() {
           {/* ÉTAPE 4 : TABLE DE JEU (LIVE AVEC LIENS SOURCES SUR TOUS LES VERDICTS ET CITATIONS) */}
           {activeStep === 'stage' && (
             <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
+
               <div style={{ textAlign: 'center' }}>
                 <div style={{ color: 'var(--amber)', fontSize: '0.85rem', fontWeight: 600 }}>ÉTAPE 4</div>
                 <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '2rem', color: 'var(--text-main)' }}>
@@ -3623,7 +4169,7 @@ export default function App() {
              ===================================================================== */}
           {activeToolTab === 'archivist' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              
+
               {/* Sélecteur de Modèle & Paramètres LLM pour L'Archiviste */}
               <div style={{
                 padding: '8px 16px',
@@ -3931,13 +4477,13 @@ export default function App() {
                         background: msg.role === 'user'
                           ? 'rgba(212, 175, 55, 0.14)'
                           : msg.documentarySilence
-                          ? 'rgba(255, 159, 28, 0.06)'
-                          : 'var(--surface)',
+                            ? 'rgba(255, 159, 28, 0.06)'
+                            : 'var(--surface)',
                         border: msg.role === 'user'
                           ? '1px solid var(--border-gold)'
                           : msg.documentarySilence
-                          ? '1px solid rgba(255, 159, 28, 0.35)'
-                          : '1px solid var(--border)',
+                            ? '1px solid rgba(255, 159, 28, 0.35)'
+                            : '1px solid var(--border)',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '8px'
@@ -4141,7 +4687,7 @@ export default function App() {
              ===================================================================== */}
           {activeToolTab === 'regie' && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              
+
               {/* Dé Physique Override */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
@@ -4266,6 +4812,8 @@ export default function App() {
           )}
 
         </aside>
+      )}
+      </>
       )}
 
       {/* Modale de consultation d'une source canonique plein écran / grande largeur */}
@@ -4475,8 +5023,8 @@ export default function App() {
                             background: isExactLine
                               ? 'rgba(212, 175, 55, 0.28)'
                               : isHighlighted
-                              ? 'rgba(212, 175, 55, 0.08)'
-                              : 'transparent',
+                                ? 'rgba(212, 175, 55, 0.08)'
+                                : 'transparent',
                             borderLeft: isExactLine
                               ? '3px solid var(--gold)'
                               : '3px solid transparent',
@@ -4592,7 +5140,7 @@ export default function App() {
 
             {/* Contenu de l'inspection */}
             <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
-              
+
               {/* Modèle */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(212, 175, 55, 0.05)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-gold)' }}>
                 <Bot size={15} color="var(--gold)" />

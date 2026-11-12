@@ -1951,9 +1951,49 @@ async fn health_handler() -> impl IntoResponse {
     })
 }
 
+#[derive(Serialize)]
+pub struct TheaterSummary {
+    pub theater_id: String,
+    pub name: String,
+    pub system_preset: String,
+    pub description: String,
+    pub sources_count: usize,
+    pub wiki_count: usize,
+    pub personae_count: usize,
+    pub last_modified: Option<String>,
+    pub icon_emoji: String,
+}
+
+fn pick_theater_icon(name: &str, system: &str) -> String {
+    let lower = format!("{} {}", name, system).to_lowercase();
+    if lower.contains("magica") || lower.contains("hermes") || lower.contains("ars") {
+        "📖".to_string()
+    } else if lower.contains("shadowrun") || lower.contains("cyber") || lower.contains("matrix") {
+        "🌃".to_string()
+    } else if lower.contains("d&d") || lower.contains("dragon") || lower.contains("donjon") {
+        "🐉".to_string()
+    } else if lower.contains("cthulhu") || lower.contains("horror") || lower.contains("malediction") {
+        "👻".to_string()
+    } else if lower.contains("vampire") || lower.contains("strahd") || lower.contains("blood") {
+        "🧛".to_string()
+    } else if lower.contains("space") || lower.contains("sci-fi") || lower.contains("star") || lower.contains("aer") {
+        "✈️".to_string()
+    } else if lower.contains("health") || lower.contains("soin") || lower.contains("medical") {
+        "🏥".to_string()
+    } else if lower.contains("fire") || lower.contains("pompier") || lower.contains("emergency") {
+        "🚒".to_string()
+    } else if lower.contains("combat") || lower.contains("sword") || lower.contains("epée") {
+        "⚔️".to_string()
+    } else if lower.contains("secret") || lower.contains("cle") || lower.contains("key") {
+        "🔑".to_string()
+    } else {
+        "🎲".to_string()
+    }
+}
+
 async fn list_theaters_handler(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<String>>, StatusCode> {
+) -> Result<Json<Vec<TheaterSummary>>, StatusCode> {
     let mut list = Vec::new();
     let entries = std::fs::read_dir(&state.workspaces_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1962,12 +2002,54 @@ async fn list_theaters_handler(
             if file_type.is_dir() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if name.ends_with(".dramatis") {
-                    list.push(name);
+                    let dir_path = entry.path();
+                    let ws = TheaterWorkspace::open(&dir_path).ok();
+                    let display_name = ws.as_ref().map(|w| w.manifest.name.clone()).unwrap_or_else(|| name.trim_end_matches(".dramatis").to_string());
+                    let system = ws.as_ref().map(|w| w.manifest.system_id.clone()).unwrap_or_else(|| "Standard".to_string());
+                    let description = ws.as_ref().map(|w| w.manifest.description.clone()).unwrap_or_default();
+
+                    let sources_count = std::fs::read_dir(dir_path.join("00_sources"))
+                        .map(|r| r.flatten().filter(|e| e.path().is_file()).count())
+                        .unwrap_or(0);
+
+                    let mut wiki_count = 0;
+                    if let Ok(cats) = std::fs::read_dir(dir_path.join("01_wiki")) {
+                        for cat in cats.flatten() {
+                            if cat.path().is_dir() {
+                                if let Ok(sub) = std::fs::read_dir(cat.path()) {
+                                    wiki_count += sub.flatten().filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("md")).count();
+                                }
+                            }
+                        }
+                    }
+
+                    let personae_count = std::fs::read_dir(dir_path.join("03_personae"))
+                        .map(|r| r.flatten().filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json") && !e.file_name().to_string_lossy().contains("psyche")).count())
+                        .unwrap_or(0);
+
+                    let last_modified = entry.metadata().ok().and_then(|m| m.modified().ok()).map(|t| {
+                        let dt: chrono::DateTime<chrono::Utc> = t.into();
+                        dt.format("%d %b %Y").to_string()
+                    });
+
+                    let icon_emoji = pick_theater_icon(&display_name, &system);
+
+                    list.push(TheaterSummary {
+                        theater_id: name,
+                        name: display_name,
+                        system_preset: system,
+                        description,
+                        sources_count,
+                        wiki_count,
+                        personae_count,
+                        last_modified,
+                        icon_emoji,
+                    });
                 }
             }
         }
     }
-    list.sort();
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(Json(list))
 }

@@ -17,3 +17,4 @@ impl PdfDocParser {
             .context("Failed to extract text from in-memory PDF bytes")
     }
 }
+
