@@ -1236,38 +1236,70 @@ export default function App() {
           background: '#0B0C10',
           overflowY: 'auto'
         }}>
-          {/* Top Bar Landing style Notebook */}
+          {/* Top Bar Landing alignée sur la Fiche Univers Stitch */}
           <header style={{
-            height: '64px',
-            borderBottom: '1px solid var(--border-subtle)',
+            height: '56px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '0 32px',
-            background: 'rgba(11, 12, 16, 0.95)',
+            padding: '0 24px',
+            background: 'rgba(11, 12, 16, 0.92)',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
             position: 'sticky',
             top: 0,
             zIndex: 20
           }}>
-            {/* Logo */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => setCurrentView('landing')}>
-                <DramatisLogo size={26} />
-                <span style={{ fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '1.25rem', color: 'var(--text-main)', letterSpacing: '0.02em' }}>
-                  Dramatis
+            {/* Fil d'Ariane tactique Stitch : Logo & Univers */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div
+                onClick={() => setCurrentView('landing')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.78rem',
+                  color: 'var(--text-dim)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em'
+                }}
+                title="Accueil Dramatis"
+              >
+                <DramatisLogo size={18} />
+                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
+              </div>
+              <span style={{ color: 'var(--border)' }}>/</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
+                  FICHE UNIVERS : {(selectedTheater ? getDisplayName(selectedTheater) : 'ANASTASIUS').toUpperCase()}
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.68rem',
+                  background: 'rgba(37, 99, 235, 0.18)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: 'var(--cobalt-light)',
+                  padding: '1px 6px',
+                  borderRadius: '4px'
+                }}>
+                  Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
                 </span>
               </div>
             </div>
 
-            {/* Barre de Recherche centrale + Vue Grille/Liste */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {/* Droite : Recherche + Vue + Contrôle Son Ambiance + Profil Maître de Jeu */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              {/* Barre de Recherche centrale */}
               <div style={{
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
-                width: '320px'
+                width: '260px'
               }}>
-                <Search size={15} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
+                <Search size={14} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
                 <input
                   type="text"
                   placeholder="Rechercher des univers..."
@@ -1275,21 +1307,21 @@ export default function App() {
                   onChange={(e) => setLandingSearch(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px 8px 36px',
+                    padding: '6px 12px 6px 34px',
                     borderRadius: '20px',
-                    background: 'var(--surface-elevated)',
+                    background: 'var(--surface-container-high)',
                     border: '1px solid var(--border)',
                     color: 'var(--text-main)',
-                    fontSize: '0.85rem',
+                    fontSize: '0.8rem',
                     outline: 'none'
                   }}
                 />
                 {landingSearch && (
                   <button
                     onClick={() => setLandingSearch('')}
-                    style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px' }}
+                    style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer' }}
                   >
-                    <X size={14} />
+                    <X size={13} />
                   </button>
                 )}
               </div>
@@ -1298,39 +1330,109 @@ export default function App() {
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                background: 'var(--surface-elevated)',
+                background: 'var(--surface-container-high)',
                 border: '1px solid var(--border)',
-                borderRadius: '8px',
+                borderRadius: '6px',
                 padding: '2px'
               }}>
                 <button
                   onClick={() => setLandingViewMode('grid')}
                   style={{
-                    padding: '6px 8px',
-                    borderRadius: '6px',
-                    background: landingViewMode === 'grid' ? 'var(--surface)' : 'transparent',
-                    color: landingViewMode === 'grid' ? 'var(--gold)' : 'var(--text-dim)',
+                    padding: '4px 7px',
+                    borderRadius: '4px',
+                    background: landingViewMode === 'grid' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                    color: landingViewMode === 'grid' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                    border: 'none',
                     display: 'flex',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    cursor: 'pointer'
                   }}
                   title="Vue Grille"
                 >
-                  <Grid size={15} />
+                  <Grid size={13} />
                 </button>
                 <button
                   onClick={() => setLandingViewMode('list')}
                   style={{
-                    padding: '6px 8px',
-                    borderRadius: '6px',
-                    background: landingViewMode === 'list' ? 'var(--surface)' : 'transparent',
-                    color: landingViewMode === 'list' ? 'var(--gold)' : 'var(--text-dim)',
+                    padding: '4px 7px',
+                    borderRadius: '4px',
+                    background: landingViewMode === 'list' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                    color: landingViewMode === 'list' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                    border: 'none',
                     display: 'flex',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    cursor: 'pointer'
                   }}
                   title="Vue Liste"
                 >
-                  <List size={15} />
+                  <List size={13} />
                 </button>
+              </div>
+
+              {/* Contrôle du Son : Ambiance active */}
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: 'var(--surface-container-high)',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                  color: 'var(--text-main)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.74rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Ambiance sonore active"
+              >
+                <Volume2 size={15} color="var(--cobalt-core)" />
+                <span>Ambiance active</span>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+              </button>
+
+              {/* Section Login / Utilisateur : Maître de Jeu */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                paddingLeft: '12px',
+                borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
+              }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(59, 130, 246, 0.45)',
+                  background: 'var(--surface-container-high)',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
+                }}>
+                  <img
+                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
+                    alt="Portrait Maître de Jeu"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
+                    Maître de Jeu
+                  </span>
+                  <span style={{
+                    fontSize: '0.68rem',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--cobalt-light)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    marginTop: '2px'
+                  }}>
+                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                    <span>En ligne</span>
+                  </span>
+                </div>
               </div>
             </div>
           </header>
