@@ -1224,220 +1224,851 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
 
-      {/* =========================================================================
-          0. LANDING PAGE STYLE GEMINI NOTEBOOK (ACCUEIL & GESTION DES UNIVERS)
+{/* =========================================================================
+          SHARED COMPONENT: SideNavBar (Barre Latérale Tactique Stitch Dark UI)
          ========================================================================= */}
-      {currentView === 'landing' ? (
-        <div style={{
-          flex: 1,
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          background: '#0B0C10',
-          overflowY: 'auto'
-        }}>
-          {/* Top Bar Landing alignée sur la Fiche Univers Stitch */}
-          <header style={{
-            height: '56px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          <aside style={{
+            width: isSidebarCollapsed ? '68px' : '288px',
+            background: 'var(--surface-container-lowest)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
-            alignItems: 'center',
+            flexDirection: 'column',
             justifyContent: 'space-between',
-            padding: '0 24px',
-            background: 'rgba(11, 12, 16, 0.92)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-            position: 'sticky',
-            top: 0,
-            zIndex: 20
+            transition: 'width 0.2s ease',
+            flexShrink: 0,
+            zIndex: 20,
+            boxShadow: '8px 0 24px rgba(0, 0, 0, 0.65)'
           }}>
-            {/* Fil d'Ariane tactique Stitch : Logo & Univers */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                onClick={() => setCurrentView('landing')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.78rem',
-                  color: 'var(--text-dim)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em'
-                }}
-                title="Accueil Dramatis"
-              >
-                <DramatisLogo size={18} />
-                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
-              </div>
-              <span style={{ color: 'var(--border)' }}>/</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
-                  FICHE UNIVERS : {(selectedTheater ? getDisplayName(selectedTheater) : 'ANASTASIUS').toUpperCase()}
-                </span>
-                <span style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.68rem',
-                  background: 'rgba(37, 99, 235, 0.18)',
-                  border: '1px solid rgba(59, 130, 246, 0.35)',
-                  color: 'var(--cobalt-light)',
-                  padding: '1px 6px',
-                  borderRadius: '4px'
-                }}>
-                  Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
-                </span>
-              </div>
-            </div>
-
-            {/* Droite : Recherche + Vue + Contrôle Son Ambiance + Profil Maître de Jeu */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              {/* Barre de Recherche centrale */}
+            {/* Zone Haut : Marque & Nexus */}
+            <div style={{
+              padding: isSidebarCollapsed ? '16px 8px' : '20px 18px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
               <div style={{
-                position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
-                width: '260px'
+                justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+                gap: '10px'
               }}>
-                <Search size={14} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
-                <input
-                  type="text"
-                  placeholder="Rechercher des univers..."
-                  value={landingSearch}
-                  onChange={(e) => setLandingSearch(e.target.value)}
+                <div
+                  onClick={() => setCurrentView('landing')}
                   style={{
-                    width: '100%',
-                    padding: '6px 12px 6px 34px',
-                    borderRadius: '20px',
-                    background: 'var(--surface-container-high)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-main)',
-                    fontSize: '0.8rem',
-                    outline: 'none'
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer'
                   }}
-                />
-                {landingSearch && (
+                  title="Retour au Nexus des Univers"
+                >
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(245, 158, 11, 0.4)',
+                    background: 'var(--surface-container-high)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.1)'
+                  }}>
+                    <Shield size={20} color="var(--gold)" />
+                  </div>
+                  {!isSidebarCollapsed && (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{
+                        fontFamily: 'var(--font-title)',
+                        fontSize: '1.15rem',
+                        fontWeight: 700,
+                        letterSpacing: '-0.02em',
+                        color: 'var(--gold)',
+                        lineHeight: 1.1
+                      }}>
+                        Dramatis VTT
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '0.68rem',
+                        color: 'var(--text-dim)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        marginTop: '2px'
+                      }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+                        <span>Nexus des Mondes</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {!isSidebarCollapsed && (
                   <button
-                    onClick={() => setLandingSearch('')}
-                    style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    style={{
+                      padding: '6px',
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-dim)',
+                      cursor: 'pointer'
+                    }}
+                    title="Replier la barre"
                   >
-                    <X size={13} />
+                    <Sliders size={14} />
                   </button>
                 )}
               </div>
+            </div>
 
-              {/* Sélecteur Vue Grille / Liste */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                background: 'var(--surface-container-high)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '2px'
-              }}>
-                <button
-                  onClick={() => setLandingViewMode('grid')}
-                  style={{
-                    padding: '4px 7px',
-                    borderRadius: '4px',
-                    background: landingViewMode === 'grid' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                    color: landingViewMode === 'grid' ? 'var(--cobalt-light)' : 'var(--text-dim)',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    cursor: 'pointer'
-                  }}
-                  title="Vue Grille"
-                >
-                  <Grid size={13} />
-                </button>
-                <button
-                  onClick={() => setLandingViewMode('list')}
-                  style={{
-                    padding: '4px 7px',
-                    borderRadius: '4px',
-                    background: landingViewMode === 'list' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                    color: landingViewMode === 'list' ? 'var(--cobalt-light)' : 'var(--text-dim)',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    cursor: 'pointer'
-                  }}
-                  title="Vue Liste"
-                >
-                  <List size={13} />
-                </button>
-              </div>
+            {/* Navigation Centrale (Stitch Tabs) */}
+            <nav style={{
+              flex: 1,
+              padding: '16px 10px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}>
+              {!isSidebarCollapsed && (
+                <div style={{
+                  padding: '0 8px 8px 8px',
+                  fontSize: '0.68rem',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-dim)',
+                  fontWeight: 600
+                }}>
+                  Navigation Centrale
+                </div>
+              )}
 
-              {/* Contrôle du Son : Ambiance active */}
+              {/* Onglet 1: Univers (Fiche active) */}
               <button
+                onClick={() => {
+                  setActiveStep('signal');
+                  setCurrentView('studio');
+                }}
                 style={{
+                  width: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 14px',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
                   borderRadius: '6px',
-                  background: 'var(--surface-container-high)',
-                  border: '1px solid rgba(59, 130, 246, 0.3)',
-                  color: 'var(--text-main)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.74rem',
+                  background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'signal' ? 600 : 400,
                   cursor: 'pointer',
+                  textAlign: 'left',
                   transition: 'all 0.15s ease'
                 }}
-                title="Ambiance sonore active"
+                title="Univers"
               >
-                <Volume2 size={15} color="var(--cobalt-core)" />
-                <span>Ambiance active</span>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && <span>Univers</span>}
               </button>
 
-              {/* Section Login / Utilisateur : Maître de Jeu */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                paddingLeft: '12px',
-                borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
-                <div style={{
-                  width: '34px',
-                  height: '34px',
+              {/* Onglet 2: L'Archiviste IA */}
+              <button
+                onClick={() => {
+                  setIsDrawerOpen(true);
+                  setActiveToolTab('archivist');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
                   borderRadius: '6px',
-                  border: '1px solid rgba(59, 130, 246, 0.45)',
-                  background: 'var(--surface-container-high)',
-                  overflow: 'hidden',
-                  flexShrink: 0,
-                  boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
-                }}>
-                  <img
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
-                    alt="Portrait Maître de Jeu"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                    Maître de Jeu
-                  </span>
-                  <span style={{
-                    fontSize: '0.68rem',
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--cobalt-light)',
+                  background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
+                  borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="L'Archiviste IA"
+              >
+                <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
+              </button>
+
+              {/* Onglet 3: Tables Virtuelles */}
+              <button
+                onClick={() => {
+                  setActiveStep('stage');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'stage' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Tables Virtuelles"
+              >
+                <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && <span>Tables Virtuelles</span>}
+              </button>
+
+              {/* Onglet 4: Personnages (Roster Cloisonné) */}
+              <button
+                onClick={() => {
+                  setActiveStep('signal');
+                  // Défilement direct ou ouverture de la section Personnages
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  borderLeft: '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Personnages"
+              >
+                <Users size={18} color="var(--text-dim)" />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Personnages</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {signalSheet?.personae_count ?? 0}
+                    </span>
+                  </div>
+                )}
+              </button>
+
+              {/* Onglet 5: Sources & RAG */}
+              <button
+                onClick={() => {
+                  setActiveStep('sources');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'sources' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Documents Sources"
+              >
+                <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Sources & RAG</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {sourcesList.length}
+                    </span>
+                  </div>
+                )}
+              </button>
+
+              {/* Onglet 6: Codex Lore & Wiki */}
+              <button
+                onClick={() => {
+                  setActiveStep('wiki');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'wiki' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Encyclopédie & Lore"
+              >
+                <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Codex Lore</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {wikiNotes.length}
+                    </span>
+                  </div>
+                )}
+              </button>
+
+              {/* Onglet 7: Paramètres & Agents */}
+              <button
+                onClick={() => setIsConfigModalOpen(true)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  borderLeft: '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Paramètres"
+              >
+                <Settings size={18} color="var(--text-dim)" />
+                {!isSidebarCollapsed && <span>Paramètres</span>}
+              </button>
+
+              {/* Sélecteur d'Univers Rapide (Quick Switcher) */}
+              {!isSidebarCollapsed && (
+                <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
-                    marginTop: '2px'
+                    justifyContent: 'space-between',
+                    padding: '0 8px 8px 8px',
+                    fontSize: '0.68rem',
+                    fontFamily: 'var(--font-mono)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-dim)',
+                    fontWeight: 600
                   }}>
-                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                    <span>En ligne</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </header>
+                    <span>Univers Connectés ({theaters.length})</span>
+                    <button
+                      onClick={() => setIsWorkspaceModalOpen(true)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: 0 }}
+                      title="Créer un nouvel univers"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
 
-          {/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '180px', overflowY: 'auto' }}>
+                    {theaters.map((th) => {
+                      const isSelected = th === selectedTheater;
+                      return (
+                        <div
+                          key={th}
+                          onClick={() => {
+                            setSelectedTheater(th);
+                            setActiveStep('signal');
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            background: isSelected ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
+                            border: isSelected ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
+                            color: isSelected ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                            fontSize: '0.8rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                        >
+                          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: isSelected ? 'var(--cobalt-core)' : 'var(--text-dim)' }} />
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {getDisplayName(th)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </nav>
+
+            {/* Pied de Sidebar : Statut Système & MJ */}
+            <div style={{
+              padding: isSidebarCollapsed ? '12px 6px' : '14px 16px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+              background: 'rgba(0, 0, 0, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isSidebarCollapsed ? 'center' : 'space-between'
+            }}>
+              {!isSidebarCollapsed ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(245, 158, 11, 0.4)',
+                    background: 'var(--surface-container-high)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--gold)',
+                    fontWeight: 700,
+                    fontSize: '0.8rem'
+                  }}>
+                    MJ
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
+                      Maître de Jeu
+                    </span>
+                    <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                      <span>En ligne</span>
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(245, 158, 11, 0.4)',
+                  background: 'var(--surface-container-high)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--gold)',
+                  fontWeight: 700,
+                  fontSize: '0.8rem'
+                }}>
+                  MJ
+                </div>
+              )}
+
+              {!isSidebarCollapsed && (
+                <button
+                  onClick={() => setIsSidebarCollapsed(true)}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '4px' }}
+                  title="Replier la barre"
+                >
+                  <ChevronUp size={14} style={{ transform: 'rotate(-90deg)' }} />
+                </button>
+              )}
+            </div>
+          </aside>
+
+
+          {/* =========================================================================
+          2. CANEVAS PRINCIPAL (TopNavBar Global & Zone Principale Dynamique)
+         ========================================================================= */}
+          <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#0B0C10' }}>
+            {/* SHARED COMPONENT: TopNavBar Stitch Dark UI (Global) */}
+            <header style={{
+              height: '56px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 24px',
+              background: 'rgba(11, 12, 16, 0.92)',
+              backdropFilter: 'blur(12px)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+              zIndex: 15,
+              flexShrink: 0
+            }}>
+              {/* Breadcrumb tactique Stitch */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {isSidebarCollapsed && (
+                  <button
+                    onClick={() => setIsSidebarCollapsed(false)}
+                    style={{
+                      padding: '5px',
+                      borderRadius: '6px',
+                      background: 'var(--surface-container-high)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      marginRight: '4px'
+                    }}
+                    title="Déplier la barre latérale"
+                  >
+                    <Sliders size={14} />
+                  </button>
+                )}
+                <div
+                  onClick={() => setCurrentView('landing')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.78rem',
+                    color: 'var(--text-dim)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em'
+                  }}
+                  title="Retour au Hub des Univers"
+                >
+                  <DramatisLogo size={18} />
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
+                </div>
+                <span style={{ color: 'var(--border)' }}>/</span>
+                {currentView === 'landing' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
+                      BIBLIOTHÈQUE DES UNIVERS
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.68rem',
+                      background: 'rgba(37, 99, 235, 0.18)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: 'var(--cobalt-light)',
+                      padding: '1px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {theaters.length} Univers
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
+                      FICHE UNIVERS : {(signalSheet?.name || selectedTheater || 'Anastasius').toUpperCase()}
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.68rem',
+                      background: 'rgba(37, 99, 235, 0.18)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: 'var(--cobalt-light)',
+                      padding: '1px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Droite : Contexte de vue + Contrôle Son + Login / Préférences */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {currentView === 'landing' ? (
+                  <>
+                    {/* Barre de Recherche centrale */}
+                    <div style={{
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      width: '240px'
+                    }}>
+                      <Search size={14} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
+                      <input
+                        type="text"
+                        placeholder="Rechercher des univers..."
+                        value={landingSearch}
+                        onChange={(e) => setLandingSearch(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '6px 12px 6px 34px',
+                          borderRadius: '20px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '0.8rem',
+                          outline: 'none'
+                        }}
+                      />
+                      {landingSearch && (
+                        <button
+                          onClick={() => setLandingSearch('')}
+                          style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Sélecteur Vue Grille / Liste */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      background: 'var(--surface-container-high)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      padding: '2px'
+                    }}>
+                      <button
+                        onClick={() => setLandingViewMode('grid')}
+                        style={{
+                          padding: '4px 7px',
+                          borderRadius: '4px',
+                          background: landingViewMode === 'grid' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                          color: landingViewMode === 'grid' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                          border: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          cursor: 'pointer'
+                        }}
+                        title="Vue Grille"
+                      >
+                        <Grid size={13} />
+                      </button>
+                      <button
+                        onClick={() => setLandingViewMode('list')}
+                        style={{
+                          padding: '4px 7px',
+                          borderRadius: '4px',
+                          background: landingViewMode === 'list' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                          color: landingViewMode === 'list' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                          border: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          cursor: 'pointer'
+                        }}
+                        title="Vue Liste"
+                      >
+                        <List size={13} />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Stepper épuré */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      background: 'var(--surface-container-lowest)',
+                      padding: '3px 8px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border)',
+                      fontSize: '0.78rem'
+                    }}>
+                      <button
+                        onClick={() => setActiveStep('signal')}
+                        style={{
+                          background: activeStep === 'signal' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                          color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontWeight: activeStep === 'signal' ? 700 : 400,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        1. Univers
+                      </button>
+                      <span style={{ color: 'var(--border)' }}>•</span>
+                      <button
+                        onClick={() => setActiveStep('sources')}
+                        style={{
+                          background: activeStep === 'sources' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                          color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontWeight: activeStep === 'sources' ? 700 : 400,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        2. Sources ({sourcesList.length})
+                      </button>
+                      <span style={{ color: 'var(--border)' }}>•</span>
+                      <button
+                        onClick={() => setActiveStep('wiki')}
+                        style={{
+                          background: activeStep === 'wiki' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+                          color: activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontWeight: activeStep === 'wiki' ? 700 : 400,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        3. Lore ({wikiNotes.length})
+                      </button>
+                      <span style={{ color: 'var(--border)' }}>•</span>
+                      <button
+                        onClick={() => setActiveStep('stage')}
+                        style={{
+                          background: activeStep === 'stage' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                          color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '3px 8px',
+                          fontWeight: activeStep === 'stage' ? 700 : 400,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        4. Table VTT
+                      </button>
+                    </div>
+
+                    {/* Bouton Panneau Outils */}
+                    <button
+                      onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        background: isDrawerOpen ? 'rgba(59, 130, 246, 0.2)' : 'var(--surface-container-high)',
+                        border: isDrawerOpen ? '1px solid var(--cobalt-core)' : '1px solid var(--border)',
+                        color: isDrawerOpen ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Database size={13} color={isDrawerOpen ? 'var(--cobalt-light)' : 'var(--gold)'} />
+                      <span>Outils & Archiviste</span>
+                    </button>
+                  </>
+                )}
+
+                {/* Contrôle du Son : Ambiance active */}
+                <button
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    background: 'var(--surface-container-high)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    color: 'var(--text-main)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.74rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Ambiance sonore active"
+                >
+                  <Volume2 size={15} color="var(--cobalt-core)" />
+                  <span>Ambiance active</span>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                </button>
+
+                {/* Section Login / Préférences : Maître de Jeu */}
+                <button
+                  onClick={() => setIsConfigModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    paddingLeft: '12px',
+                    borderLeft: '1px solid rgba(255, 255, 255, 0.1)',
+                    background: 'transparent',
+                    borderTop: 'none',
+                    borderRight: 'none',
+                    borderBottom: 'none',
+                    cursor: 'pointer'
+                  }}
+                  title="Profil & Préférences"
+                >
+                  <div style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(59, 130, 246, 0.45)',
+                    background: 'var(--surface-container-high)',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
+                  }}>
+                    <img
+                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
+                      alt="Portrait Maître de Jeu"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
+                      Maître de Jeu
+                    </span>
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--cobalt-light)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      marginTop: '2px'
+                    }}>
+                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                      <span>En ligne</span>
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </header>
+
+            {/* Zone Principale : Hub des Univers ou Univers Actif */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: currentView === 'landing' ? '0' : '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+              {currentView === 'landing' ? (
+                <>
+{/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
           <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '32px 32px 48px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
             {/* 1. GRAND BANDEAU IMMERSIF 'À LA UNE' : ANASTASIUS SUR BRAHAHEÏM (OU L'UNIVERS ACTIF) */}
@@ -2066,721 +2697,11 @@ export default function App() {
             </div>
 
           </div>
-        </div>
-      ) : (
-        /* VUE STUDIO DE L'UNIVERS ACTIF */
-        <>
-          {/* =========================================================================
-          SHARED COMPONENT: SideNavBar (Barre Latérale Tactique Stitch Dark UI)
-         ========================================================================= */}
-          <aside style={{
-            width: isSidebarCollapsed ? '68px' : '288px',
-            background: 'var(--surface-container-lowest)',
-            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            transition: 'width 0.2s ease',
-            flexShrink: 0,
-            zIndex: 20,
-            boxShadow: '8px 0 24px rgba(0, 0, 0, 0.65)'
-          }}>
-            {/* Zone Haut : Marque & Nexus */}
-            <div style={{
-              padding: isSidebarCollapsed ? '16px 8px' : '20px 18px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
-                gap: '10px'
-              }}>
-                <div
-                  onClick={() => setCurrentView('landing')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    cursor: 'pointer'
-                  }}
-                  title="Retour au Nexus des Univers"
-                >
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(245, 158, 11, 0.4)',
-                    background: 'var(--surface-container-high)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.1)'
-                  }}>
-                    <Shield size={20} color="var(--gold)" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{
-                        fontFamily: 'var(--font-title)',
-                        fontSize: '1.15rem',
-                        fontWeight: 700,
-                        letterSpacing: '-0.02em',
-                        color: 'var(--gold)',
-                        lineHeight: 1.1
-                      }}>
-                        Dramatis VTT
-                      </span>
-                      <span style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '0.68rem',
-                        color: 'var(--text-dim)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginTop: '2px'
-                      }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
-                        <span>Nexus des Mondes</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
 
-                {!isSidebarCollapsed && (
-                  <button
-                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                    style={{
-                      padding: '6px',
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-dim)',
-                      cursor: 'pointer'
-                    }}
-                    title="Replier la barre"
-                  >
-                    <Sliders size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Navigation Centrale (Stitch Tabs) */}
-            <nav style={{
-              flex: 1,
-              padding: '16px 10px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px'
-            }}>
-              {!isSidebarCollapsed && (
-                <div style={{
-                  padding: '0 8px 8px 8px',
-                  fontSize: '0.68rem',
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-dim)',
-                  fontWeight: 600
-                }}>
-                  Navigation Centrale
-                </div>
-              )}
-
-              {/* Onglet 1: Univers (Fiche active) */}
-              <button
-                onClick={() => {
-                  setActiveStep('signal');
-                  setCurrentView('studio');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'signal' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Univers"
-              >
-                <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && <span>Univers</span>}
-              </button>
-
-              {/* Onglet 2: L'Archiviste IA */}
-              <button
-                onClick={() => {
-                  setIsDrawerOpen(true);
-                  setActiveToolTab('archivist');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
-                  borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="L'Archiviste IA"
-              >
-                <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
-              </button>
-
-              {/* Onglet 3: Tables Virtuelles */}
-              <button
-                onClick={() => {
-                  setActiveStep('stage');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'stage' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Tables Virtuelles"
-              >
-                <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && <span>Tables Virtuelles</span>}
-              </button>
-
-              {/* Onglet 4: Personnages (Roster Cloisonné) */}
-              <button
-                onClick={() => {
-                  setActiveStep('signal');
-                  // Défilement direct ou ouverture de la section Personnages
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  borderLeft: '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Personnages"
-              >
-                <Users size={18} color="var(--text-dim)" />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Personnages</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {signalSheet?.personae_count ?? 0}
-                    </span>
-                  </div>
-                )}
-              </button>
-
-              {/* Onglet 5: Sources & RAG */}
-              <button
-                onClick={() => {
-                  setActiveStep('sources');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'sources' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Documents Sources"
-              >
-                <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Sources & RAG</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {sourcesList.length}
-                    </span>
-                  </div>
-                )}
-              </button>
-
-              {/* Onglet 6: Codex Lore & Wiki */}
-              <button
-                onClick={() => {
-                  setActiveStep('wiki');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'wiki' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Encyclopédie & Lore"
-              >
-                <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Codex Lore</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {wikiNotes.length}
-                    </span>
-                  </div>
-                )}
-              </button>
-
-              {/* Onglet 7: Paramètres & Agents */}
-              <button
-                onClick={() => setIsConfigModalOpen(true)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  borderLeft: '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Paramètres"
-              >
-                <Settings size={18} color="var(--text-dim)" />
-                {!isSidebarCollapsed && <span>Paramètres</span>}
-              </button>
-
-              {/* Sélecteur d'Univers Rapide (Quick Switcher) */}
-              {!isSidebarCollapsed && (
-                <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0 8px 8px 8px',
-                    fontSize: '0.68rem',
-                    fontFamily: 'var(--font-mono)',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-dim)',
-                    fontWeight: 600
-                  }}>
-                    <span>Univers Connectés ({theaters.length})</span>
-                    <button
-                      onClick={() => setIsWorkspaceModalOpen(true)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: 0 }}
-                      title="Créer un nouvel univers"
-                    >
-                      <Plus size={13} />
-                    </button>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '180px', overflowY: 'auto' }}>
-                    {theaters.map((th) => {
-                      const isSelected = th === selectedTheater;
-                      return (
-                        <div
-                          key={th}
-                          onClick={() => {
-                            setSelectedTheater(th);
-                            setActiveStep('signal');
-                          }}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            background: isSelected ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                            border: isSelected ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
-                            color: isSelected ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                          }}
-                        >
-                          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: isSelected ? 'var(--cobalt-core)' : 'var(--text-dim)' }} />
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {getDisplayName(th)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </nav>
-
-            {/* Pied de Sidebar : Statut Système & MJ */}
-            <div style={{
-              padding: isSidebarCollapsed ? '12px 6px' : '14px 16px',
-              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-              background: 'rgba(0, 0, 0, 0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: isSidebarCollapsed ? 'center' : 'space-between'
-            }}>
-              {!isSidebarCollapsed ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(245, 158, 11, 0.4)',
-                    background: 'var(--surface-container-high)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--gold)',
-                    fontWeight: 700,
-                    fontSize: '0.8rem'
-                  }}>
-                    MJ
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                      Maître de Jeu
-                    </span>
-                    <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                      <span>En ligne</span>
-                    </span>
-                  </div>
-                </div>
+                </>
               ) : (
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(245, 158, 11, 0.4)',
-                  background: 'var(--surface-container-high)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--gold)',
-                  fontWeight: 700,
-                  fontSize: '0.8rem'
-                }}>
-                  MJ
-                </div>
-              )}
+                <>
 
-              {!isSidebarCollapsed && (
-                <button
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '4px' }}
-                  title="Replier la barre"
-                >
-                  <ChevronUp size={14} style={{ transform: 'rotate(-90deg)' }} />
-                </button>
-              )}
-            </div>
-          </aside>
-
-          {/* =========================================================================
-          2. CANEVAS PRINCIPAL (TopNavBar Stitch & Espace de Travail)
-         ========================================================================= */}
-          <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-
-            {/* SHARED COMPONENT: TopNavBar Stitch Dark UI */}
-            <header style={{
-              height: '56px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0 24px',
-              background: 'rgba(11, 12, 16, 0.92)',
-              backdropFilter: 'blur(12px)',
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-              zIndex: 15
-            }}>
-              {/* Breadcrumb tactique Stitch */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div
-                  onClick={() => setCurrentView('landing')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.78rem',
-                    color: 'var(--text-dim)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em'
-                  }}
-                  title="Retour à la Bibliothèque des Univers"
-                >
-                  <DramatisLogo size={18} />
-                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
-                </div>
-                <span style={{ color: 'var(--border)' }}>/</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
-                    FICHE UNIVERS : {(signalSheet?.name || selectedTheater || 'Anastasius').toUpperCase()}
-                  </span>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.68rem',
-                    background: 'rgba(37, 99, 235, 0.18)',
-                    border: '1px solid rgba(59, 130, 246, 0.35)',
-                    color: 'var(--cobalt-light)',
-                    padding: '1px 6px',
-                    borderRadius: '4px'
-                  }}>
-                    Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Stepper rapide & Outils */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {/* Contrôle du Son : Ambiance active */}
-                <button
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    background: 'var(--surface-container-high)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    color: 'var(--text-main)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.74rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title="Ambiance sonore active"
-                >
-                  <Volume2 size={15} color="var(--cobalt-core)" />
-                  <span>Ambiance active</span>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                </button>
-
-                {/* Stepper épuré */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'var(--surface-container-lowest)',
-                  padding: '3px 8px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--border)',
-                  fontSize: '0.78rem'
-                }}>
-                  <button
-                    onClick={() => setActiveStep('signal')}
-                    style={{
-                      background: activeStep === 'signal' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
-                      color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '3px 8px',
-                      fontWeight: activeStep === 'signal' ? 700 : 400,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    1. Univers
-                  </button>
-                  <span style={{ color: 'var(--border)' }}>•</span>
-                  <button
-                    onClick={() => setActiveStep('sources')}
-                    style={{
-                      background: activeStep === 'sources' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                      color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-dim)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '3px 8px',
-                      fontWeight: activeStep === 'sources' ? 700 : 400,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    2. Sources ({sourcesList.length})
-                  </button>
-                  <span style={{ color: 'var(--border)' }}>•</span>
-                  <button
-                    onClick={() => setActiveStep('wiki')}
-                    style={{
-                      background: activeStep === 'wiki' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
-                      color: activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '3px 8px',
-                      fontWeight: activeStep === 'wiki' ? 700 : 400,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    3. Lore ({wikiNotes.length})
-                  </button>
-                  <span style={{ color: 'var(--border)' }}>•</span>
-                  <button
-                    onClick={() => setActiveStep('stage')}
-                    style={{
-                      background: activeStep === 'stage' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
-                      color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '3px 8px',
-                      fontWeight: activeStep === 'stage' ? 700 : 400,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    4. Table VTT
-                  </button>
-                </div>
-
-                {/* Bouton Panneau Outils */}
-                <button
-                  onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    borderRadius: '8px',
-                    background: isDrawerOpen ? 'rgba(59, 130, 246, 0.2)' : 'var(--surface-container-high)',
-                    border: isDrawerOpen ? '1px solid var(--cobalt-core)' : '1px solid var(--border)',
-                    color: isDrawerOpen ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Database size={13} color={isDrawerOpen ? 'var(--cobalt-light)' : 'var(--gold)'} />
-                  <span>Outils & Archiviste</span>
-                </button>
-
-                {/* Section Login / Utilisateur : Maître de Jeu */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  paddingLeft: '12px',
-                  borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
-                }}>
-                  <div style={{
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(59, 130, 246, 0.45)',
-                    background: 'var(--surface-container-high)',
-                    overflow: 'hidden',
-                    flexShrink: 0,
-                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
-                  }}>
-                    <img
-                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
-                      alt="Portrait Maître de Jeu"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                      Maître de Jeu
-                    </span>
-                    <span style={{
-                      fontSize: '0.68rem',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--cobalt-light)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      marginTop: '2px'
-                    }}>
-                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                      <span>En ligne</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </header>
-
-            {/* Contenu de l'étape active */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
 
               {/* ÉTAPE 1 : FICHE UNIVERS (ARCHITECTURE 5 PILIERS - COBALT LOREKEEPER & OR FORGÉ) */}
               {activeStep === 'signal' && signalSheet && (
@@ -4845,8 +4766,12 @@ export default function App() {
                 </div>
               )}
 
+  
+                </>
+              )}
             </div>
           </main>
+
 
           {/* =========================================================================
           3. MODALE NOUVEL UNIVERS
@@ -5955,8 +5880,7 @@ export default function App() {
 
             </aside>
           )}
-        </>
-      )}
+
 
       {/* Modale de consultation d'une source canonique plein écran / grande largeur */}
       {viewingSource && (
