@@ -32,7 +32,14 @@ import {
   X,
   Grid,
   List,
-  FolderOpen
+  FolderOpen,
+  Zap,
+  Cpu,
+  Scroll,
+  Users,
+  Swords,
+  Shield,
+  Activity,
 } from 'lucide-react';
 
 // Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
@@ -1392,299 +1399,654 @@ export default function App() {
             </div>
           </header>
 
-          {/* Corps de la Landing Page */}
-          <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '36px 32px' }}>
-            {/* Titre & Bouton d'action "+ Nouvel univers" */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h2 style={{ fontSize: '1.45rem', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '0.01em' }}>
-                  Mes univers
-                </h2>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-                  ({theaters.length})
-                </span>
-              </div>
+          {/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
+          <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '32px 32px 48px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-              <button
-                onClick={() => setIsWorkspaceModalOpen(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'var(--gold)',
-                  color: '#0B0C10',
-                  fontWeight: 700,
-                  fontSize: '0.88rem',
-                  padding: '10px 20px',
-                  borderRadius: '24px',
-                  boxShadow: '0 4px 14px rgba(212, 175, 55, 0.25)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <Plus size={18} strokeWidth={2.5} />
-                <span>Nouvel univers</span>
-              </button>
-            </div>
-
-            {/* Grille ou Liste de Cartes style Gemini Notebook */}
-            {landingViewMode === 'grid' ? (
+            {/* 1. GRAND BANDEAU IMMERSIF 'À LA UNE' : ANASTASIUS SUR BRAHAHEÏM (OU L'UNIVERS ACTIF) */}
+            <section style={{
+              position: 'relative',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              background: 'var(--surface-low)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+            }}>
+              {/* Overlay Décoratif Ambiance Arcanique & Cybernétique */}
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))',
-                gap: '16px'
+                position: 'absolute',
+                inset: 0,
+                background: 'linear-gradient(135deg, rgba(27, 21, 40, 0.95) 0%, rgba(16, 20, 26, 0.98) 50%, rgba(10, 21, 32, 0.95) 100%)',
+                zIndex: 0
               }}>
-                {theaters
-                  .filter((th) => {
-                    if (!landingSearch) return true;
-                    const searchLower = landingSearch.toLowerCase();
-                    const name = getDisplayName(th).toLowerCase();
-                    return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
-                  })
-                  .map((th) => {
-                    const isPinned = pinnedTheaters.includes(th);
-                    const summary = theatersSummaries.find((s) => s.theater_id === th);
-                    const displayName = getDisplayName(th);
-                    const icon = getTheaterIcon(th);
-                    const sourcesCount = summary?.sources_count ?? 0;
-                    const lastDate = summary?.last_modified || 'Récemment';
-
-                    return (
-                      <div
-                        key={th}
-                        onClick={() => {
-                          setSelectedTheater(th);
-                          setCurrentView('studio');
-                          setActiveStep('signal');
-                        }}
-                        style={{
-                          background: '#16181E',
-                          border: th === selectedTheater ? '1px solid rgba(212, 175, 55, 0.5)' : '1px solid rgba(255, 255, 255, 0.06)',
-                          borderRadius: '16px',
-                          padding: '18px 18px 14px 18px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          minHeight: '140px',
-                          cursor: 'pointer',
-                          position: 'relative',
-                          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.borderColor = 'var(--gold)';
-                          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.5)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.borderColor = th === selectedTheater ? 'rgba(212, 175, 55, 0.5)' : 'rgba(255, 255, 255, 0.06)';
-                          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-                        }}
-                      >
-                        {/* En-tête de carte : Icône Emoji + Menu 3 points */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>{icon}</span>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {isPinned && <Pin size={12} color="var(--gold)" />}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuTheater(openMenuTheater === th ? null : th);
-                              }}
-                              style={{
-                                padding: '4px',
-                                borderRadius: '50%',
-                                color: 'var(--text-dim)',
-                                background: 'transparent'
-                              }}
-                            >
-                              <MoreVertical size={14} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Menu contextuel popover de carte */}
-                        {openMenuTheater === th && (
-                          <div
-                            ref={menuRef}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              position: 'absolute',
-                              right: '12px',
-                              top: '46px',
-                              background: 'var(--surface)',
-                              border: '1px solid var(--border)',
-                              borderRadius: '8px',
-                              padding: '4px',
-                              width: '140px',
-                              boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
-                              zIndex: 100,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '2px'
-                            }}
-                          >
-                            <button
-                              onClick={() => {
-                                if (isPinned) setPinnedTheaters(pinnedTheaters.filter(p => p !== th));
-                                else setPinnedTheaters([...pinnedTheaters, th]);
-                                setOpenMenuTheater(null);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                fontSize: '0.8rem',
-                                color: 'var(--text-main)',
-                                width: '100%'
-                              }}
-                            >
-                              <Pin size={13} color="var(--gold)" />
-                              <span>{isPinned ? 'Désépingler' : 'Épingler'}</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setRenamingTheater(th);
-                                setRenamedTitle(getDisplayName(th));
-                                setOpenMenuTheater(null);
-                              }}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                fontSize: '0.8rem',
-                                color: 'var(--text-main)',
-                                width: '100%'
-                              }}
-                            >
-                              <Edit2 size={13} color="var(--gold)" />
-                              <span>Renommer</span>
-                            </button>
-                            <button
-                              onClick={() => handleDeleteWorkspace(th)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '10px',
-                                padding: '8px 12px',
-                                borderRadius: '6px',
-                                fontSize: '0.8rem',
-                                color: 'var(--red)',
-                                width: '100%'
-                              }}
-                            >
-                              <Trash2 size={13} color="var(--red)" />
-                              <span>Supprimer</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Titre & Métadonnées style NotebookLM */}
-                        <div style={{ marginTop: '16px' }}>
-                          <h3 style={{
-                            fontSize: '0.94rem',
-                            fontWeight: 600,
-                            color: 'var(--text-main)',
-                            marginBottom: '6px',
-                            lineHeight: 1.3,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical'
-                          }}>
-                            {displayName}
-                          </h3>
-
-                          <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span>{lastDate}</span>
-                            <span>•</span>
-                            <span>{sourcesCount} {sourcesCount > 1 ? 'sources' : 'source'}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at top right, rgba(189, 162, 255, 0.15), transparent 60%)' }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.12), transparent 50%)' }} />
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  opacity: 0.08,
+                  backgroundImage: 'linear-gradient(to right, #808080 1px, transparent 1px), linear-gradient(to bottom, #808080 1px, transparent 1px)',
+                  backgroundSize: '24px 24px'
+                }} />
               </div>
-            ) : (
-              /* Vue Liste style Notebook */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {theaters
-                  .filter((th) => {
-                    if (!landingSearch) return true;
-                    const searchLower = landingSearch.toLowerCase();
-                    const name = getDisplayName(th).toLowerCase();
-                    return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
-                  })
-                  .map((th) => {
-                    const summary = theatersSummaries.find((s) => s.theater_id === th);
-                    const displayName = getDisplayName(th);
-                    const icon = getTheaterIcon(th);
-                    const sourcesCount = summary?.sources_count ?? 0;
-                    const lastDate = summary?.last_modified || 'Récemment';
 
-                    return (
-                      <div
-                        key={th}
-                        onClick={() => {
-                          setSelectedTheater(th);
-                          setCurrentView('studio');
-                          setActiveStep('signal');
-                        }}
-                        style={{
-                          background: '#16181E',
-                          border: '1px solid rgba(255, 255, 255, 0.06)',
-                          borderRadius: '10px',
-                          padding: '12px 18px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                          <span style={{ fontSize: '1.3rem' }}>{icon}</span>
+              <div style={{
+                position: 'relative',
+                zIndex: 1,
+                padding: '32px 36px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '320px',
+                gap: '20px'
+              }}>
+                <div>
+                  {/* Badges d'état supérieurs */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '4px 12px',
+                      borderRadius: '4px',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      background: 'rgba(245, 158, 11, 0.15)',
+                      color: 'var(--primary)',
+                      border: '1px solid rgba(245, 158, 11, 0.4)'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--gold)', boxShadow: '0 0 8px var(--gold)' }} />
+                      Univers Actif • Mis à l'Honneur
+                    </span>
+
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.72rem',
+                      color: 'var(--text-muted)',
+                      padding: '4px 10px',
+                      borderRadius: '4px',
+                      background: 'rgba(28, 32, 38, 0.8)',
+                      border: '1px solid rgba(83, 68, 52, 0.4)'
+                    }}>
+                      {selectedTheater} • {sourcesList.length} Source(s) • {personae.length} Personnage(s)
+                    </span>
+                  </div>
+
+                  {/* Titre & Description de l'univers mis en vedette */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(245, 158, 11, 0.5)',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--gold)'
+                    }}>
+                      <Sparkles size={24} />
+                    </div>
+                    <h2 style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '2.4rem',
+                      color: 'var(--text-main)',
+                      fontWeight: 700,
+                      letterSpacing: '-0.02em',
+                      lineHeight: 1.1
+                    }}>
+                      {getDisplayName(selectedTheater)}
+                    </h2>
+                  </div>
+
+                  <p style={{
+                    fontSize: '1rem',
+                    color: 'var(--text-muted)',
+                    maxWidth: '920px',
+                    lineHeight: '1.65',
+                    marginBottom: '18px'
+                  }}>
+                    {signalSheet?.agent_curator_summary || "Explorez cet univers hermétique : règles déduites de vos sources, codex indexés, personnages cloisonnés et Archiviste IA dédié."}
+                  </p>
+
+                  {/* Badges de Lore Bleu Cobalt Lorekeeper */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '4px',
+                      background: 'rgba(30, 58, 138, 0.6)',
+                      color: 'var(--cobalt-400)',
+                      border: '1px solid rgba(59, 130, 246, 0.45)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.74rem',
+                      fontWeight: 500,
+                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                    }}>
+                      <Zap size={13} color="var(--cobalt-400)" />
+                      <span>RAG Vectoriel 100% Hermétique</span>
+                    </span>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '4px',
+                      background: 'rgba(30, 58, 138, 0.6)',
+                      color: 'var(--cobalt-400)',
+                      border: '1px solid rgba(59, 130, 246, 0.45)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.74rem',
+                      fontWeight: 500,
+                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                    }}>
+                      <Shield size={13} color="var(--cobalt-400)" />
+                      <span>{signalSheet?.system_preset || 'Système Déduit'}</span>
+                    </span>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 12px',
+                      borderRadius: '4px',
+                      background: 'rgba(30, 58, 138, 0.6)',
+                      color: 'var(--cobalt-400)',
+                      border: '1px solid rgba(59, 130, 246, 0.45)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.74rem',
+                      fontWeight: 500,
+                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                    }}>
+                      <Bot size={13} color="var(--cobalt-400)" />
+                      <span>Archiviste IA Dédié</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Boutons d'Action Principaux du Bandeau */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '18px' }}>
+                  <button
+                    onClick={() => {
+                      setCurrentView('studio');
+                      setActiveStep('signal');
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 22px',
+                      borderRadius: '6px',
+                      background: 'var(--gold)',
+                      color: '#0B0C10',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      boxShadow: '0 4px 16px rgba(245, 158, 11, 0.3)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span>Ouvrir la Fiche Univers</span>
+                    <ArrowRight size={16} />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentView('studio');
+                      setActiveStep('stage');
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 18px',
+                      borderRadius: '6px',
+                      background: 'rgba(30, 58, 138, 0.4)',
+                      border: '1px solid var(--border-cobalt)',
+                      color: 'var(--cobalt-400)',
+                      fontWeight: 600,
+                      fontSize: '0.86rem'
+                    }}
+                  >
+                    <Swords size={15} color="var(--cobalt-400)" />
+                    <span>Lancer Session VTT</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCurrentView('studio');
+                      setIsDrawerOpen(true);
+                      setActiveToolTab('archivist');
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 18px',
+                      borderRadius: '6px',
+                      background: 'var(--surface-container)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-main)',
+                      fontWeight: 600,
+                      fontSize: '0.86rem'
+                    }}
+                  >
+                    <Bot size={15} color="var(--gold)" />
+                    <span>Interroger l'Archiviste IA</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* 2. SECTION BIBLIOTHÈQUE DES UNIVERS (GRILLE DE CARTES GLASSMORPHISM & ACTION RAPIDE) */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <h3 style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: '1.5rem',
+                      fontWeight: 600,
+                      color: 'var(--text-main)',
+                      letterSpacing: '-0.015em'
+                    }}>
+                      Bibliothèque des Univers
+                    </h3>
+                    <span style={{
+                      padding: '3px 10px',
+                      borderRadius: '4px',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.74rem',
+                      background: 'var(--surface-container-high)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--primary)'
+                    }}>
+                      {theaters.length} Univers Définis
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    Chaque univers cloisonne ses règles, son corpus de documents RAG, son Archiviste IA dédié, ses personnages et ses tables VTT.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setIsWorkspaceModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: 'var(--gold)',
+                    color: '#0B0C10',
+                    fontWeight: 700,
+                    fontSize: '0.86rem',
+                    padding: '8px 18px',
+                    borderRadius: '20px',
+                    boxShadow: '0 4px 14px rgba(245, 158, 11, 0.25)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Plus size={16} strokeWidth={2.5} />
+                  <span>Nouvel univers</span>
+                </button>
+              </div>
+
+              {/* Grille des Cartes d'Univers */}
+              {landingViewMode === 'grid' ? (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: '20px'
+                }}>
+                  {/* Carte Action Rapide : Créer un Nouvel Univers */}
+                  <div
+                    onClick={() => setIsWorkspaceModalOpen(true)}
+                    style={{
+                      border: '2px dashed rgba(245, 158, 11, 0.4)',
+                      borderRadius: '12px',
+                      padding: '24px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      textAlign: 'center',
+                      background: 'rgba(10, 14, 20, 0.6)',
+                      cursor: 'pointer',
+                      minHeight: '220px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--gold)';
+                      e.currentTarget.style.background = 'rgba(245, 158, 11, 0.04)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                      e.currentTarget.style.background = 'rgba(10, 14, 20, 0.6)';
+                    }}
+                  >
+                    <div>
+                      <div style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        background: 'rgba(245, 158, 11, 0.1)',
+                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 14px auto',
+                        color: 'var(--gold)'
+                      }}>
+                        <Plus size={24} />
+                      </div>
+                      <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
+                        Créer un Nouvel Univers
+                      </h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                        Téléversez un manuel de jeu, un scénario complet ou déployez un cadre de campagne sur-mesure assisté par l'IA.
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                      <button style={{
+                        padding: '7px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--gold)',
+                        color: '#0B0C10',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}>
+                        <Upload size={13} />
+                        <span>Importer Manuel / PDF (RAG)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cartes des Univers Définis */}
+                  {theaters
+                    .filter((th) => {
+                      if (!landingSearch) return true;
+                      const searchLower = landingSearch.toLowerCase();
+                      const name = getDisplayName(th).toLowerCase();
+                      return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                    })
+                    .map((th) => {
+                      const isPinned = pinnedTheaters.includes(th);
+                      const isSelected = th === selectedTheater;
+                      const summary = theatersSummaries.find((s) => s.theater_id === th);
+                      const displayName = getDisplayName(th);
+                      const icon = getTheaterIcon(th);
+                      const sourcesCount = summary?.sources_count ?? 0;
+                      const personaeCount = summary?.personae_count ?? 0;
+                      const lastDate = summary?.last_modified || 'Récemment';
+
+                      return (
+                        <div
+                          key={th}
+                          onClick={() => {
+                            setSelectedTheater(th);
+                            setCurrentView('studio');
+                            setActiveStep('signal');
+                          }}
+                          style={{
+                            background: 'var(--surface-low)',
+                            border: isSelected ? '1px solid rgba(245, 158, 11, 0.7)' : '1px solid rgba(160, 142, 122, 0.2)',
+                            borderRadius: '12px',
+                            padding: '20px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            minHeight: '220px',
+                            cursor: 'pointer',
+                            position: 'relative',
+                            transition: 'all 0.2s ease',
+                            boxShadow: isSelected ? '0 8px 24px rgba(245, 158, 11, 0.12)' : '0 4px 16px rgba(0,0,0,0.4)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.borderColor = 'var(--gold)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.borderColor = isSelected ? 'rgba(245, 158, 11, 0.7)' : 'rgba(160, 142, 122, 0.2)';
+                          }}
+                        >
                           <div>
-                            <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName}</div>
-                            <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)' }}>
-                              {summary?.system_preset || 'Système déduit'} • {sourcesCount} sources
+                            {/* Header carte */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '1.8rem', lineHeight: 1 }}>{icon}</span>
+                                <div>
+                                  <h4 style={{
+                                    fontFamily: 'var(--font-display)',
+                                    fontSize: '1.05rem',
+                                    fontWeight: 600,
+                                    color: 'var(--text-main)',
+                                    lineHeight: 1.2
+                                  }}>
+                                    {displayName}
+                                  </h4>
+                                  <span style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-400)' }}>
+                                    {summary?.system_preset || 'Règles Déduites'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {isPinned && <Pin size={12} color="var(--gold)" />}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenMenuTheater(openMenuTheater === th ? null : th);
+                                  }}
+                                  style={{
+                                    padding: '4px',
+                                    borderRadius: '50%',
+                                    color: 'var(--text-dim)',
+                                    background: 'transparent'
+                                  }}
+                                >
+                                  <MoreVertical size={14} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Menu contextuel popover de carte */}
+                            {openMenuTheater === th && (
+                              <div
+                                ref={menuRef}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  position: 'absolute',
+                                  right: '12px',
+                                  top: '46px',
+                                  background: 'var(--surface-container)',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: '8px',
+                                  padding: '4px',
+                                  width: '140px',
+                                  boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                                  zIndex: 100,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '2px'
+                                }}
+                              >
+                                <button
+                                  onClick={() => {
+                                    if (isPinned) setPinnedTheaters(pinnedTheaters.filter(p => p !== th));
+                                    else setPinnedTheaters([...pinnedTheaters, th]);
+                                    setOpenMenuTheater(null);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.8rem',
+                                    color: 'var(--text-main)',
+                                    width: '100%'
+                                  }}
+                                >
+                                  <Pin size={13} color="var(--gold)" />
+                                  <span>{isPinned ? 'Désépingler' : 'Épingler'}</span>
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setRenamingTheater(th);
+                                    setRenamedTitle(getDisplayName(th));
+                                    setOpenMenuTheater(null);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.8rem',
+                                    color: 'var(--text-main)',
+                                    width: '100%'
+                                  }}
+                                >
+                                  <Edit2 size={13} color="var(--gold)" />
+                                  <span>Renommer</span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteWorkspace(th)}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    padding: '8px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.8rem',
+                                    color: 'var(--red)',
+                                    width: '100%'
+                                  }}
+                                >
+                                  <Trash2 size={13} color="var(--red)" />
+                                  <span>Supprimer</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Description sommaire */}
+                            <p style={{
+                              fontSize: '0.8rem',
+                              color: 'var(--text-dim)',
+                              lineHeight: 1.5,
+                              marginBottom: '14px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical'
+                            }}>
+                              {summary?.description || `Univers cloisonné avec ses règles, fiches et secrets propres.`}
+                            </p>
+                          </div>
+
+                          {/* Footer de Carte avec métadonnées chiffrées & bouton ouvrir */}
+                          <div style={{
+                            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                            paddingTop: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                              <span style={{ color: 'var(--cobalt-400)' }}>{sourcesCount} doc(s)</span>
+                              <span>•</span>
+                              <span>{personaeCount} PJ</span>
+                            </div>
+
+                            <span style={{
+                              fontSize: '0.74rem',
+                              fontFamily: 'var(--font-mono)',
+                              color: isSelected ? 'var(--gold)' : 'var(--text-dim)',
+                              fontWeight: isSelected ? 700 : 400
+                            }}>
+                              {isSelected ? 'Actif' : lastDate}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                /* Vue Liste style Cobalt Lorekeeper */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {theaters
+                    .filter((th) => {
+                      if (!landingSearch) return true;
+                      const searchLower = landingSearch.toLowerCase();
+                      const name = getDisplayName(th).toLowerCase();
+                      return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                    })
+                    .map((th) => {
+                      const summary = theatersSummaries.find((s) => s.theater_id === th);
+                      const displayName = getDisplayName(th);
+                      const icon = getTheaterIcon(th);
+                      const sourcesCount = summary?.sources_count ?? 0;
+                      const lastDate = summary?.last_modified || 'Récemment';
+
+                      return (
+                        <div
+                          key={th}
+                          onClick={() => {
+                            setSelectedTheater(th);
+                            setCurrentView('studio');
+                            setActiveStep('signal');
+                          }}
+                          style={{
+                            background: 'var(--surface-low)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '8px',
+                            padding: '12px 20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <span style={{ fontSize: '1.4rem' }}>{icon}</span>
+                            <div>
+                              <div style={{ fontSize: '0.94rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName}</div>
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                                {summary?.system_preset || 'Système Déduit'} • {sourcesCount} documents RAG
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>{lastDate}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTheater(th);
-                              setCurrentView('studio');
-                              setActiveStep('signal');
-                            }}
-                            style={{
-                              padding: '6px 14px',
-                              borderRadius: '6px',
-                              background: 'var(--surface-elevated)',
-                              border: '1px solid var(--border-gold)',
-                              color: 'var(--gold)',
-                              fontSize: '0.8rem',
-                              fontWeight: 600
-                            }}
-                          >
-                            Ouvrir
-                          </button>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <span style={{ fontSize: '0.76rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{lastDate}</span>
+                            <button
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '6px',
+                                background: 'rgba(30, 58, 138, 0.4)',
+                                border: '1px solid var(--border-cobalt)',
+                                color: 'var(--cobalt-400)',
+                                fontSize: '0.78rem',
+                                fontWeight: 600
+                              }}
+                            >
+                              Ouvrir
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       ) : (
@@ -2153,255 +2515,768 @@ export default function App() {
         {/* Contenu de l'étape active */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
 
-          {/* ÉTAPE 1 : PRÉSENTATION DE L'UNIVERS (FICHE SIGNALÉTIQUE HARMONIEUSE OR/NOCTURNE AVEC SOURCES DÉTAILLÉES) */}
+                    {/* ÉTAPE 1 : FICHE UNIVERS (ARCHITECTURE 5 PILIERS - COBALT LOREKEEPER & OR FORGÉ) */}
           {activeStep === 'signal' && signalSheet && (
-            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-              {/* En-tête */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                    <Compass size={15} />
-                    <span>Fiche Signalétique d'Univers</span>
-                  </div>
-                  <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.2rem', color: 'var(--text-main)', marginTop: '4px', letterSpacing: '0.04em' }}>
-                    {signalSheet.name}
-                  </h1>
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    onClick={() => setIsConfigModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '7px',
-                      padding: '8px 15px',
-                      borderRadius: '8px',
-                      background: 'var(--surface-elevated)',
-                      border: '1px solid var(--border-gold)',
-                      color: 'var(--gold)',
-                      fontWeight: 600,
-                      fontSize: '0.85rem'
-                    }}
-                  >
-                    <Bot size={15} />
-                    <span>Agents du Harnais</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveStep('sources')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 18px',
-                      borderRadius: '8px',
-                      background: 'var(--gold)',
-                      color: '#0B0C10',
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
-                      boxShadow: '0 4px 14px rgba(212, 175, 55, 0.25)'
-                    }}
-                  >
-                    <span>Consulter les Sources</span>
-                    <ArrowRight size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Synthèse textuelle dans un cadre épuré aux tons or feutré avec traçabilité discrète */}
+              {/* HERO BANNER TACTIQUE : UNIVERS ACTIF */}
               <div style={{
-                background: 'rgba(212, 175, 55, 0.03)',
-                border: '1px solid rgba(212, 175, 55, 0.15)',
-                borderRadius: '12px',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px'
+                position: 'relative',
+                borderRadius: '16px',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                background: 'var(--surface-container-lowest)',
+                overflow: 'hidden',
+                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.75)',
+                padding: '28px 32px'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>
-                    <Sparkles size={14} />
-                    <span>Synthèse Déduite des Sources Canoniques</span>
-                  </div>
-                  {/* Badge Source discret avec lien vers la liste des sources */}
-                  <button
-                    onClick={() => setActiveStep('sources')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '0.7rem',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--gold)',
-                      background: 'var(--gold-surface)',
-                      border: '1px solid var(--border-gold)',
-                      padding: '2px 8px',
-                      borderRadius: '4px'
-                    }}
-                    title="Voir les sources d'où provient cette synthèse"
-                  >
-                    <span>Déduit de {sourcesList.length} source(s)</span>
-                    <ExternalLink size={9} />
-                  </button>
-                </div>
-                <p style={{ fontFamily: 'var(--font-serif)', fontSize: '1.05rem', lineHeight: '1.6', color: 'var(--text-main)', whiteSpace: 'pre-line' }}>
-                  {signalSheet.agent_curator_summary}
-                </p>
-              </div>
-
-              {/* Table structurée d'Informations Clés (Tons de la couleur principale Or & Nocturne) */}
-              <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: '12px',
-                overflow: 'hidden'
-              }}>
+                {/* Aura cobalt d'arrière-plan */}
                 <div style={{
-                  padding: '12px 20px',
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <span style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: 'var(--text-dim)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em'
-                  }}>
-                    Paramètres Canoniques Déduits des Sources
-                  </span>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                    Toutes les informations sont sourcées et vérifiées
-                  </span>
-                </div>
+                  position: 'absolute',
+                  top: '-80px',
+                  right: '-60px',
+                  width: '320px',
+                  height: '320px',
+                  background: 'radial-gradient(circle, rgba(37, 99, 235, 0.22) 0%, rgba(0,0,0,0) 70%)',
+                  borderRadius: '50%',
+                  pointerEvents: 'none'
+                }} />
 
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {/* Ligne Système */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>Système de Règles</span>
-                        <button
-                          onClick={() => setActiveStep('sources')}
-                          style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--gold)',
-                            background: 'var(--gold-surface)',
-                            border: '1px solid var(--border-gold)',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Voir les sources documentaires ayant déduit ce système"
-                        >
-                          <span>Déduit des {sourcesList.length} source(s)</span>
-                          <ExternalLink size={9} />
-                        </button>
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Modèle mécanique et règles déduits du corpus injecté</div>
+                <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* Top Bar : Statut & Badges */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--gold)', letterSpacing: '0.12em', fontWeight: 700, textTransform: 'uppercase' }}>
+                        UNIVERS ACTIF
+                      </span>
+                      <span style={{ color: 'var(--text-dim)' }}>•</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                        NEXUS ID: {(selectedTheater || "CORE-001").toUpperCase() || 'CORE-001'}
+                      </span>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>{signalSheet.system_preset || 'En attente de sources'}</span>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: 'rgba(37, 99, 235, 0.18)',
+                        border: '1px solid rgba(59, 130, 246, 0.45)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '0.72rem',
+                        color: 'var(--cobalt-light)'
+                      }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                        <span>Cloisonnement Hermétique 100% • RAG Synchronisé</span>
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        background: 'var(--surface-container-high)',
+                        border: '1px solid var(--border)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '0.72rem',
+                        color: 'var(--gold)'
+                      }}>
+                        <Zap size={12} color="var(--gold)" />
+                        <span>{signalSheet.system_preset || 'Moteur d20 + Arcano'}</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Ligne Langue */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px' }}>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>Langue de Narration</span>
-                        <button
-                          onClick={() => handleNavigateToSource('lexicon.yaml')}
-                          style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-dim)',
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            border: '1px solid var(--border-subtle)',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Glossaire bilingue lexicon.yaml"
-                        >
-                          <span>lexicon.yaml</span>
-                          <ExternalLink size={9} />
-                        </button>
+                  {/* Titre & Description */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '1000px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{
+                        width: '46px',
+                        height: '46px',
+                        borderRadius: '10px',
+                        background: 'rgba(59, 130, 246, 0.12)',
+                        border: '1px solid rgba(59, 130, 246, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--cobalt-light)'
+                      }}>
+                        <Compass size={24} />
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '2px' }}>Langue canonique des fiches et du dialogue</div>
+                      <div>
+                        <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.4rem', color: 'var(--text-main)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                          {signalSheet.name}
+                        </h1>
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      {signalSheet.default_language?.toUpperCase() || 'FR'}
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--cobalt-light)', fontFamily: 'var(--font-sans)' }}>
+                        {(signalSheet as any).genre || 'Univers de Rôle Tactique'}
+                      </span>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+                        ({(signalSheet as any).tone || 'Campagne Héroïque & Sombres Mystères'})
+                      </span>
+                    </div>
+
+                    <p style={{
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: '0.96rem',
+                      lineHeight: '1.65',
+                      color: 'var(--text-muted)',
+                      margin: '4px 0 0 0',
+                      maxWidth: '920px'
+                    }}>
+                      {signalSheet.agent_curator_summary || "Vaste univers cloisonné sous le harnais Dramatis. Moteur déterministe Rust, intégrité RAG LanceDB et isolement hermétique complet garantissant l'absence de fuite cross-monde."}
+                    </p>
+                  </div>
+
+                  {/* Tags rapides */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(37, 99, 235, 0.16)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: 'var(--cobalt-light)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <Sparkles size={12} color="var(--cobalt-core)" />
+                      {(signalSheet as any).magic_nature || 'Magie Arcanique'}
+                    </span>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(37, 99, 235, 0.16)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: 'var(--cobalt-light)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <Cpu size={12} color="var(--cobalt-core)" />
+                      {(signalSheet as any).tech_level || 'Artefacts & Alchimie'}
+                    </span>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      border: '1px solid rgba(245, 158, 11, 0.35)',
+                      color: 'var(--gold)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <Shield size={12} color="var(--gold)" />
+                      {(signalSheet as any).danger_level || 'Péril Majeur & Corruption'}
+                    </span>
+                    <span style={{
+                      padding: '4px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <Users size={12} />
+                      {(signalSheet as any).social_structure || 'Factions & Alliances'}
+                    </span>
+                  </div>
+
+                  {/* Actions Rapides du Hero */}
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: '12px',
+                    paddingTop: '16px',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                  }}>
+                    <button
+                      onClick={() => setActiveStep('stage')}
+                      style={{
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        background: 'linear-gradient(135deg, var(--gold) 0%, #b45309 100%)',
+                        color: '#0B0C10',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 4px 16px rgba(245, 158, 11, 0.35)',
+                        border: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Swords size={16} />
+                      <span>Lancer la Table Virtuelle VTT</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolTab('archivist')}
+                      style={{
+                        padding: '10px 18px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(59, 130, 246, 0.45)',
+                        background: 'rgba(37, 99, 235, 0.18)',
+                        color: 'var(--cobalt-light)',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Bot size={16} color="var(--cobalt-light)" />
+                      <span>Interroger l'Archiviste IA</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveStep('sources')}
+                      style={{
+                        padding: '10px 16px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-container-high)',
+                        color: 'var(--text-main)',
+                        fontWeight: 500,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <FileText size={16} color="var(--text-dim)" />
+                      <span>Gérer les Sources ({signalSheet.sources_count})</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsConfigModalOpen(true)}
+                      style={{
+                        padding: '10px 16px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        background: 'var(--surface-container-high)',
+                        color: 'var(--text-main)',
+                        fontWeight: 500,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Sliders size={16} color="var(--text-dim)" />
+                      <span>Configuration des Agents</span>
+                    </button>
+
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>
+                      <Activity size={12} color="var(--cobalt-core)" />
+                      <span>Dernière synchro : Récemment</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Inventaire Numérique - Dégradé & Tons Or sobre */}
-              <div style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: '12px',
-                padding: '16px 24px',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                textAlign: 'center'
-              }}>
-                <div
-                  onClick={() => setActiveStep('sources')}
-                  style={{ borderRight: '1px solid var(--border-subtle)', cursor: 'pointer' }}
-                  title="Cliquer pour voir les sources"
-                >
-                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.sources_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
-                    {signalSheet.sources_count}
+              {/* GRILLE CENTRALE : PILIERS 1 À 5 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '20px' }}>
+
+                {/* PILIER 1 : CONFIGURATION & MOTEUR DE RÈGLES (8 COLS) */}
+                <div style={{
+                  gridColumn: 'span 8',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
+                      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                        Pilier 1 : Configuration & Moteur de Règles
+                      </h2>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', background: 'rgba(37, 99, 235, 0.2)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 8px', borderRadius: '4px' }}>
+                      Moteur Déterministe Rhai Actif
+                    </span>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                    <span>{signalSheet.sources_count === 0 ? 'Aucune source' : `${signalSheet.sources_count} Source(s)`}</span>
-                    <ExternalLink size={10} color="var(--text-dim)" />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', paddingTop: '16px' }}>
+                    {/* Bloc Système */}
+                    <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-core)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 700 }}>
+                        <Sliders size={13} />
+                        <span>Système de règles</span>
+                      </div>
+                      <p style={{ margin: '8px 0 6px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>
+                        {signalSheet.system_preset || 'Système Hybride Custom'}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        <span style={{ background: 'var(--surface-container-high)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)' }}>
+                          {(signalSheet as any).dice_mechanic || 'Moteur d20'}
+                        </span>
+                        <span style={{ background: 'var(--surface-container-high)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                          Sanction Déterministe
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bloc Cloisonnement */}
+                    <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-light)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 700 }}>
+                        <Shield size={13} />
+                        <span>Cloisonnement</span>
+                      </div>
+                      <p style={{ margin: '8px 0 6px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>
+                        Univers Hermétique Actif
+                      </p>
+                      <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                        Zéro fuite cross-monde. Fiches, lore, règles et tables réservées à ce théâtre.
+                      </p>
+                    </div>
+
+                    {/* Bloc Synchro RAG */}
+                    <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-core)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 700 }}>
+                          <Activity size={13} />
+                          <span>Synchro RAG</span>
+                        </div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--cobalt-light)', fontWeight: 700 }}>
+                          14 ms
+                        </span>
+                      </div>
+                      <p style={{ margin: '8px 0 6px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>
+                        LanceDB + Tantivy
+                      </p>
+                      <div style={{ width: '100%', height: '4px', background: 'var(--surface-container-high)', borderRadius: '2px', overflow: 'hidden', margin: '4px 0' }}>
+                        <div style={{ width: '100%', height: '100%', background: 'var(--cobalt-core)' }} />
+                      </div>
+                      <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                        Vectorisation live continue
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div
-                  onClick={() => setActiveStep('wiki')}
-                  style={{ borderRight: '1px solid var(--border-subtle)', cursor: 'pointer' }}
-                  title="Cliquer pour voir l'encyclopédie"
-                >
-                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.wiki_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
-                    {signalSheet.wiki_count}
+                {/* MODULE COMPACT : NOTES RAPIDES DU MJ (4 COLS) */}
+                <div style={{
+                  gridColumn: 'span 4',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)' }}>
+                      <Shield size={15} />
+                      <h3 style={{ fontFamily: 'var(--font-title)', fontSize: '1rem', color: 'var(--text-main)', margin: 0 }}>
+                        Notes Rapides du MJ
+                      </h3>
+                    </div>
+                    <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', background: 'rgba(37, 99, 235, 0.18)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 6px', borderRadius: '4px' }}>
+                      Secret MJ
+                    </span>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                    <span>{signalSheet.wiki_count === 0 ? 'Aucune note' : `${signalSheet.wiki_count} Note(s) de Lore`}</span>
-                    <ExternalLink size={10} color="var(--text-dim)" />
+
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: 'var(--surface-container-lowest)',
+                    border: '1px solid var(--border)',
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    lineHeight: '1.5',
+                    fontStyle: 'italic'
+                  }}>
+                    "Consulter l'Archiviste pour extraire les règles spécifiques aux blessures critiques ou aux surcharges d'essence. Conserver la séparation absolue entre verdicts de règles et narration."
+                  </div>
+
+                  <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                    <span>Chiffrement local SQLite</span>
+                    <button onClick={() => setActiveStep('wiki')} style={{ color: 'var(--cobalt-light)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>Voir le Codex Lore</span>
+                      <ArrowRight size={10} />
+                    </button>
                   </div>
                 </div>
 
-                <div
-                  onClick={() => setActiveStep('stage')}
-                  style={{ cursor: 'pointer' }}
-                  title="Cliquer pour aller à la table de jeu"
-                >
-                  <div style={{ fontSize: '1.6rem', fontWeight: 700, color: signalSheet.personae_count > 0 ? 'var(--gold)' : 'var(--text-dim)' }}>
-                    {signalSheet.personae_count}
+                {/* PILIER 2 : DOCUMENTS SOURCES & RAG INDEXÉS (12 COLS) */}
+                <div style={{
+                  gridColumn: 'span 12',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                        Pilier 2 : Documents Sources & RAG Indexés
+                      </h2>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', background: 'rgba(37, 99, 235, 0.2)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.4)', padding: '3px 10px', borderRadius: '4px' }}>
+                        {sourcesList.length} Source(s) Détectée(s)
+                      </span>
+                      <button
+                        onClick={() => setActiveStep('sources')}
+                        style={{
+                          padding: '4px 12px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '0.75rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={12} color="var(--gold)" />
+                        <span>Ajouter / Gérer</span>
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginTop: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                    <span>{signalSheet.personae_count === 0 ? 'Aucun personnage' : `${signalSheet.personae_count} Personnage(s)`}</span>
-                    <ExternalLink size={10} color="var(--text-dim)" />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px', paddingTop: '16px' }}>
+                    {sourcesList.length > 0 ? (
+                      sourcesList.map((src, i) => (
+                        <div
+                          key={src.relative_path || i}
+                          onClick={() => { setActiveStep('sources'); setActiveStep('sources'); }}
+                          style={{
+                            padding: '14px',
+                            borderRadius: '8px',
+                            background: 'var(--surface-container-lowest)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '12px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          <div style={{
+                            padding: '8px',
+                            borderRadius: '6px',
+                            background: 'var(--surface-container-high)',
+                            color: src.file_type === 'pdf' ? '#ef4444' : 'var(--cobalt-core)'
+                          }}>
+                            <FileText size={18} />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                              <h4 style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }}>
+                                {src.file_name}
+                              </h4>
+                              <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', background: 'rgba(37, 99, 235, 0.2)', color: 'var(--cobalt-light)', padding: '1px 5px', borderRadius: '3px' }}>
+                                100%
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-dim)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+                              <span>{src.file_type.toUpperCase()}</span>
+                              <span>•</span>
+                              <span>{(src.size_bytes / 1024).toFixed(1) + ' KB'}</span>
+                            </div>
+                            <div style={{ width: '100%', height: '3px', background: 'var(--surface-container-high)', borderRadius: '2px', overflow: 'hidden', marginTop: '8px' }}>
+                              <div style={{ width: '100%', height: '100%', background: 'var(--cobalt-core)' }} />
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ gridColumn: '1 / -1', padding: '24px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
+                        Aucun document source déposé dans <code>00_sources/</code>. Déposez vos PDF ou fichiers Markdown pour alimenter le RAG de cet univers.
+                      </div>
+                    )}
                   </div>
                 </div>
+
+                {/* PILIER 3 : L'ARCHIVISTE IA DÉDIÉ (7 COLS) */}
+                <div style={{
+                  gridColumn: 'span 7',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px 24px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: '-40px',
+                    right: '-40px',
+                    width: '160px',
+                    height: '160px',
+                    background: 'radial-gradient(circle, rgba(37, 99, 235, 0.2) 0%, rgba(0,0,0,0) 70%)',
+                    borderRadius: '50%',
+                    pointerEvents: 'none'
+                  }} />
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', position: 'relative', zIndex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Bot size={18} color="var(--cobalt-light)" />
+                      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                        Pilier 3 : L'Archiviste IA Dédié
+                      </h2>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--cobalt-light)', fontWeight: 600 }}>
+                      Index RAG Actif ({sourcesList.length} sources)
+                    </span>
+                  </div>
+
+                  <div style={{ paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative', zIndex: 1 }}>
+                    <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                      <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: 'var(--surface-container-high)', border: '1px solid rgba(59, 130, 246, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cobalt-light)', flexShrink: 0 }}>
+                        <Scroll size={20} />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>L'Archiviste du Théâtre</span>
+                          <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', background: 'rgba(37, 99, 235, 0.2)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '1px 6px', borderRadius: '3px', fontWeight: 600 }}>
+                            Scribe Lorekeeper
+                          </span>
+                        </div>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.45 }}>
+                          "Gardien incorruptible du canon. Je cite exclusivement les fragments des sources actives sans jamais extrapoler ni inventer de règles."
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
+                      <Search size={16} color="var(--text-dim)" style={{ marginLeft: '8px' }} />
+                      <input
+                        type="text"
+                        placeholder="Interroger l'Archiviste sur le lore, les règles ou les mystères..."
+                        value={archivistChatInput}
+                        onChange={(e) => setArchivistChatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && archivistChatInput.trim()) {
+                            setActiveToolTab('archivist');
+                            handleAskArchivistTool();
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--text-main)',
+                          fontSize: '0.85rem',
+                          outline: 'none',
+                          padding: '6px'
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (archivistChatInput.trim()) {
+                            setActiveToolTab('archivist');
+                            handleAskArchivistTool();
+                          }
+                        }}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          background: 'var(--cobalt-core)',
+                          color: '#fff',
+                          border: 'none',
+                          fontWeight: 600,
+                          fontSize: '0.78rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <span>Consulter</span>
+                        <Send size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* PILIER 5 : TABLES VIRTUELLES VTT (5 COLS) */}
+                <div style={{
+                  gridColumn: 'span 5',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
+                      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                        Pilier 5 : Tables Virtuelles
+                      </h2>
+                    </div>
+                  </div>
+
+                  <div style={{ paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{
+                      padding: '14px',
+                      borderRadius: '8px',
+                      background: 'var(--surface-container-lowest)',
+                      border: '1.5px solid rgba(245, 158, 11, 0.4)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 700 }}>
+                            Table Principale : {signalSheet.name}
+                          </h4>
+                        </div>
+                        <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '1px 6px', borderRadius: '3px' }}>
+                          Active
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.74rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                        <span>{signalSheet.personae_count} Personnage(s)</span>
+                        <span>•</span>
+                        <span>Scène : Prologue de campagne</span>
+                      </div>
+                      <button
+                        onClick={() => setActiveStep('stage')}
+                        style={{
+                          marginTop: '6px',
+                          padding: '8px 14px',
+                          borderRadius: '6px',
+                          background: 'linear-gradient(135deg, var(--gold) 0%, #b45309 100%)',
+                          color: '#0B0C10',
+                          border: 'none',
+                          fontWeight: 700,
+                          fontSize: '0.78rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Swords size={14} />
+                        <span>Rejoindre la Session</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* PILIER 4 : PERSONNAGES (ROSTER CLOISONNÉ) (12 COLS) */}
+                <div style={{
+                  gridColumn: 'span 12',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-container-low)',
+                  backdropFilter: 'blur(8px)',
+                  padding: '20px 24px',
+                  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
+                      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                        Pilier 4 : Personnages (Roster Cloisonné - {personae.length || signalSheet.personae_count} Personnages)
+                      </h2>
+                    </div>
+                    <button
+                      onClick={() => setActiveStep('stage')}
+                      style={{
+                        padding: '4px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--surface-container-high)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--gold)',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Plus size={12} color="var(--gold)" />
+                      <span>Gérer / Nouveau PJ</span>
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px', paddingTop: '16px' }}>
+                    {personae.length > 0 ? (
+                      personae.map((perso, idx) => (
+                        <div
+                          key={perso.id || idx}
+                          style={{
+                            padding: '14px',
+                            borderRadius: '8px',
+                            background: 'var(--surface-container-lowest)',
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '38px', height: '38px', borderRadius: '6px', background: 'var(--surface-container-high)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gold)', fontWeight: 700 }}>
+                              {perso.name ? perso.name[0] : 'P'}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <h4 style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-main)', fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {perso.name || `Personnage #${idx + 1}`}
+                              </h4>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                                {perso.concept || perso.role || 'Protagoniste'}
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                            <span style={{ color: '#10b981' }}>Santé: Active</span>
+                            <span style={{ color: 'var(--gold)' }}>Rôle: PJ</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
+                        Aucun personnage instancié dans <code>03_personae/</code>. Utilisez l'Intendant ou la table VTT pour forger un protagoniste.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
               </div>
 
             </div>
           )}
+
 
           {/* ÉTAPE 2 : SOURCES DOCUMENTAIRES (INVENTAIRE RÉEL DU BAC À SABLE) */}
           {activeStep === 'sources' && (

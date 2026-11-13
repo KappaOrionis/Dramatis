@@ -1,44 +1,66 @@
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Sora:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* Palette Dramatis Sombre & Noble (Zéro Cyan) */
-  --canvas: #0B0C10;              /* Theater Canvas abyssal */
-  --sidebar-bg: #111216;          /* Volet latéral */
-  --sidebar-hover: #161820;
-  --sidebar-active: #1D202B;
-  --surface: #14161D;             /* Backstage surface */
-  --surface-elevated: #1C1F2A;    /* Backstage elevated */
-  --surface-pill: #181A22;
-  
-  --border: rgba(255, 255, 255, 0.08);       /* Theater border 1px */
-  --border-subtle: rgba(255, 255, 255, 0.04);
-  --border-gold: rgba(212, 175, 55, 0.25);
-  
-  /* Accents Nobles & Chauds */
-  --gold: #D4AF37;                /* Dramatis Gold (Or ancien) */
-  --gold-bright: #E5C158;
-  --gold-dim: #997B20;
-  --gold-glow: rgba(212, 175, 55, 0.15);
-  --gold-surface: rgba(212, 175, 55, 0.05);
+  /* Palette Dramatis VTT & Lorekeeper — Bleu Cobalt Lorekeeper & Or Forgé */
+  --canvas: #10141a;              /* Canvas sombre standard */
+  --surface: #10141a;             /* Surface base */
+  --surface-lowest: #0a0e14;      /* Creux le plus profond */
+  --surface-low: #181c22;         /* Surfaces de panneaux et de piliers */
+  --surface-container: #1c2026;   /* Cartes standards */
+  --surface-high: #262a31;        /* Cartes en survol ou sélection */
+  --surface-highest: #31353c;     /* Éléments contrastés */
+  --surface-bright: #353940;      /* En-têtes élevés */
 
-  --amber: #FF9F1C;               /* Machina Amber (Déterminisme, dés, règles) */
-  --amber-dim: #C87508;
-  --amber-surface: rgba(255, 159, 28, 0.08);
+  --sidebar-bg: #10141a;          /* Volet latéral */
+  --sidebar-hover: #181c22;
+  --sidebar-active: #262a31;
+  --surface-elevated: #1c2026;
   
-  --green: #10B981;               /* Consensus Green (Succès, validation) */
-  --purple: #A855F7;              /* Secret Purple (MJ, mystères) */
-  --red: #EF4444;                 /* Alertes / Suppressions */
+  --border: rgba(160, 142, 122, 0.2);          /* Bordure neutre */
+  --border-subtle: rgba(83, 68, 52, 0.25);     /* Bordure fine */
+  --border-gold: rgba(245, 158, 11, 0.35);      /* Liseré or ambré */
+  --border-cobalt: rgba(59, 130, 246, 0.35);    /* Liseré bleu cobalt */
+  
+  /* Accents Or Forgé & Ambre Mystique */
+  --primary: #ffc174;
+  --primary-container: #f59e0b;
+  --primary-fixed: #ffddb8;
+  --on-primary: #472a00;
+  --on-primary-container: #613b00;
+  --gold: #f59e0b;
+  --gold-bright: #ffc174;
+  --gold-glow: rgba(245, 158, 11, 0.2);
+  --gold-surface: rgba(245, 158, 11, 0.08);
+
+  /* Accents Bleu Cobalt Lorekeeper */
+  --secondary: #3b82f6;
+  --secondary-container: #1d4ed8;
+  --cobalt-400: #60a5fa;
+  --cobalt-500: #3b82f6;
+  --cobalt-600: #2563eb;
+  --cobalt-700: #1d4ed8;
+  --cobalt-glow: rgba(59, 130, 246, 0.25);
+  --cobalt-surface: rgba(59, 130, 246, 0.1);
+
+  /* Tertiaire & Sémantique */
+  --tertiary: #d5c3ff;
+  --tertiary-container: #bda2ff;
+  --green: #10B981;
+  --green-glow: rgba(16, 185, 129, 0.2);
+  --red: #ffb4ab;
+  --red-container: #93000a;
   
   /* Niveaux de texte */
-  --text-main: #F3F4F6;           /* Text high contrast */
-  --text-muted: #9CA3AF;          /* Text muted */
-  --text-dim: #6B7280;            /* Text dim */
+  --text-main: #dfe2eb;
+  --text-muted: #d8c3ad;
+  --text-dim: #8b949e;
 
-  /* Typographies officielles BRAND.md */
+  /* Typographies officielles DESIGN.md Stitch */
+  --font-display: 'Sora', sans-serif;
+  --font-title: 'Sora', 'Cinzel', sans-serif;
   --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-serif: 'EB Garamond', Georgia, serif;
-  --font-title: 'Cinzel', Georgia, serif;
-  --font-mono: 'JetBrains Mono', Consolas, monospace;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
 * {

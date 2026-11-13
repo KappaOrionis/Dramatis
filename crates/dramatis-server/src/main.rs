@@ -1240,7 +1240,7 @@ async fn archivist_query_handler(
                             let clean = chunk_text.trim();
                             if clean.len() >= 20 {
                                 let lower = clean.to_lowercase();
-                                let mut score = query_terms
+                                let score = query_terms
                                     .iter()
                                     .filter(|term| lower.contains(term.as_str()))
                                     .count();
