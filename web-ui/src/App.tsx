@@ -2591,14 +2591,15 @@ export default function App() {
                     textTransform: 'uppercase',
                     letterSpacing: '0.06em'
                   }}
+                  title="Retour à la Bibliothèque des Univers"
                 >
-                  <Globe size={15} color="var(--cobalt-core)" />
-                  <span>Dramatis</span>
+                  <DramatisLogo size={18} />
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
                 </div>
                 <span style={{ color: 'var(--border)' }}>/</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
-                    Fiche Univers : {signalSheet?.name || selectedTheater || 'Anastasius'}
+                    FICHE UNIVERS : {(signalSheet?.name || selectedTheater || 'Anastasius').toUpperCase()}
                   </span>
                   <span style={{
                     fontFamily: 'var(--font-mono)',
@@ -2609,30 +2610,35 @@ export default function App() {
                     padding: '1px 6px',
                     borderRadius: '4px'
                   }}>
-                    NEXUS {(selectedTheater || 'ANA-709').toUpperCase()}
+                    Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
                   </span>
                 </div>
               </div>
 
               {/* Stepper rapide & Outils */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {/* Ambiance active */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  background: 'var(--surface-container-high)',
-                  border: '1px solid var(--border)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.72rem',
-                  color: 'var(--text-muted)'
-                }}>
-                  <Volume2 size={13} color="var(--cobalt-core)" />
+                {/* Contrôle du Son : Ambiance active */}
+                <button
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    background: 'var(--surface-container-high)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    color: 'var(--text-main)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.74rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title="Ambiance sonore active"
+                >
+                  <Volume2 size={15} color="var(--cobalt-core)" />
                   <span>Ambiance active</span>
-                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                </div>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                </button>
 
                 {/* Stepper épuré */}
                 <div style={{
@@ -2727,6 +2733,49 @@ export default function App() {
                   <Database size={13} color={isDrawerOpen ? 'var(--cobalt-light)' : 'var(--gold)'} />
                   <span>Outils & Archiviste</span>
                 </button>
+
+                {/* Section Login / Utilisateur : Maître de Jeu */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  paddingLeft: '12px',
+                  borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
+                }}>
+                  <div style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(59, 130, 246, 0.45)',
+                    background: 'var(--surface-container-high)',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
+                  }}>
+                    <img
+                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
+                      alt="Portrait Maître de Jeu"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
+                      Maître de Jeu
+                    </span>
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--cobalt-light)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      marginTop: '2px'
+                    }}>
+                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                      <span>En ligne</span>
+                    </span>
+                  </div>
+                </div>
               </div>
             </header>
 
