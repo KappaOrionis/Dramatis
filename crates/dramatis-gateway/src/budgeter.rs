@@ -24,11 +24,8 @@ impl ContextBudgeter {
     }
 
     pub fn available_prompt_tokens(&self) -> usize {
-        if self.max_context_tokens > self.reserved_response_tokens {
-            self.max_context_tokens - self.reserved_response_tokens
-        } else {
-            0
-        }
+        self.max_context_tokens
+            .saturating_sub(self.reserved_response_tokens)
     }
 
     pub fn prune_messages(&self, messages: &[ChatMessage]) -> Vec<ChatMessage> {

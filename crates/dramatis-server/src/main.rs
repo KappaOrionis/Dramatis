@@ -1443,14 +1443,26 @@ async fn rewind_stage_handler(
     Ok(Json(remaining))
 }
 
-async fn list_models_handler() -> Json<Vec<String>> {
+async fn list_models_handler(Query(params): Query<HashMap<String, String>>) -> Json<Vec<String>> {
     let mut models = Vec::new();
-    if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
-        if let Ok(v) = resp.json::<serde_json::Value>().await {
-            if let Some(arr) = v["data"].as_array() {
-                for m in arr {
-                    if let Some(id) = m["id"].as_str() {
-                        models.push(id.to_string());
+    let requested_base = params
+        .get("base_url")
+        .map(|s| s.trim().trim_end_matches('/'))
+        .filter(|s| s.starts_with("http://127.0.0.1") || s.starts_with("http://localhost"))
+        .unwrap_or("http://127.0.0.1:1234/v1");
+    let models_url = format!("{}/models", requested_base);
+
+    if let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1200))
+        .build()
+    {
+        if let Ok(resp) = client.get(&models_url).send().await {
+            if let Ok(v) = resp.json::<serde_json::Value>().await {
+                if let Some(arr) = v["data"].as_array() {
+                    for m in arr {
+                        if let Some(id) = m["id"].as_str() {
+                            models.push(id.to_string());
+                        }
                     }
                 }
             }

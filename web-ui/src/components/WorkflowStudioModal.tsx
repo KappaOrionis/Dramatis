@@ -290,6 +290,26 @@ const GATE_LABELS: Record<GateId, string> = {
   g4_hitl: 'G4 HITL',
 };
 
+const GEMINI_MODELS: { id: string; label: string }[] = [
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommandé — Rapide & Multimodal)' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Raisonnement profond & Dramaturgie)' },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Ultra-rapide & Économique)' },
+  { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Standard)' },
+];
+
+const OPENROUTER_MODELS: { id: string; label: string }[] = [
+  { id: 'anthropic/claude-3.7-sonnet', label: 'Anthropic — Claude 3.7 Sonnet (Narration & Metteur en Scène)' },
+  { id: 'anthropic/claude-3.5-haiku', label: 'Anthropic — Claude 3.5 Haiku (Acteur Bot réactif)' },
+  { id: 'google/gemini-2.5-pro-preview', label: 'Google — Gemini 2.5 Pro (via OpenRouter)' },
+  { id: 'google/gemini-2.5-flash', label: 'Google — Gemini 2.5 Flash (via OpenRouter)' },
+  { id: 'mistralai/mistral-large-2411', label: 'Mistral AI — Mistral Large 24.11 (Excellence FR)' },
+  { id: 'mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral AI — Mistral Small 3.1 24B Instruct' },
+  { id: 'deepseek/deepseek-chat-v3-0324', label: 'DeepSeek — DeepSeek V3 (Logique & Scribe)' },
+  { id: 'deepseek/deepseek-r1', label: 'DeepSeek — DeepSeek R1 (Raisonnement)' },
+  { id: 'qwen/qwen-2.5-72b-instruct', label: 'Qwen — Qwen 2.5 72B Instruct (JSON strict)' },
+  { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Meta — Llama 3.3 70B Instruct' },
+];
+
 const WORKFLOW_PARAM_LABELS: Record<string, string> = {
   top_k_chunks: 'Passages récupérés (Top-K)',
   silence_threshold: 'Seuil de silence documentaire',
@@ -360,6 +380,9 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
   const [yamlPanelMode, setYamlPanelMode] = useState<'none' | 'export' | 'import'>('none');
   const [yamlBuffer, setYamlBuffer] = useState('');
   const [copiedYaml, setCopiedYaml] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [localModelsList, setLocalModelsList] = useState<string[]>(availableModels);
+  const [isProbingLocalModels, setIsProbingLocalModels] = useState(false);
 
   // Tab 2: Playground & Traces State
   const [playWorkflowId, setPlayWorkflowId] = useState<string>('WF-01');
@@ -670,6 +693,109 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
         system_template: `${draftAgent.prompts.system_template} ${token}`.trim(),
       },
     });
+  };
+
+  const effectiveLocalModels = localModelsList.length > 0 ? localModelsList : availableModels;
+
+  const handleProbeLmStudio = async () => {
+    if (!draftAgent) return;
+    setIsProbingLocalModels(true);
+    try {
+      const url = `/api/llm/models?base_url=${encodeURIComponent(draftAgent.model.base_url || 'http://127.0.0.1:1234/v1')}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const list: string[] = await res.json();
+        if (Array.isArray(list) && list.length > 0) {
+          setLocalModelsList(list);
+          setConfigFeedback({ kind: 'ok', text: `${list.length} modèle(s) détecté(s) sur LM Studio (${draftAgent.model.base_url}).` });
+        }
+      }
+    } catch {
+      setConfigFeedback({ kind: 'err', text: 'Impossible de joindre le serveur LM Studio local.' });
+    } finally {
+      setIsProbingLocalModels(false);
+    }
+  };
+
+  const handleSelectProvider = (newProvider: 'local_lmstudio' | 'gemini' | 'openrouter') => {
+    if (!draftAgent) return;
+    const defaultLocalModel = effectiveLocalModels.find((m) => !m.includes('embed')) || 'mistral-small-3.2-24b-instruct-2506';
+
+    if (newProvider === 'local_lmstudio') {
+      setDraftAgent({
+        ...draftAgent,
+        model: {
+          ...draftAgent.model,
+          provider: 'local_lmstudio',
+          base_url: 'http://127.0.0.1:1234/v1',
+          api_key: null,
+          model_id: defaultLocalModel,
+          fallback_model_id: defaultLocalModel,
+          context_window: 8192,
+          max_tokens: 1024,
+          structured_output: {
+            ...draftAgent.model.structured_output,
+            mode: draftAgent.model.structured_output.mode || 'json_schema',
+          },
+        },
+        guardrails: {
+          ...draftAgent.guardrails,
+          privacy_mode: 'inherit_theater',
+        },
+      });
+    } else if (newProvider === 'gemini') {
+      const nextMode = draftAgent.model.structured_output.mode === 'gbnf'
+        ? 'json_schema'
+        : draftAgent.model.structured_output.mode;
+      setDraftAgent({
+        ...draftAgent,
+        model: {
+          ...draftAgent.model,
+          provider: 'gemini',
+          base_url: 'https://generativelanguage.googleapis.com/v1beta/openai',
+          model_id: GEMINI_MODELS.some((m) => m.id === draftAgent.model.model_id)
+            ? draftAgent.model.model_id
+            : 'gemini-2.5-flash',
+          fallback_model_id: defaultLocalModel,
+          context_window: 131072,
+          max_tokens: 2048,
+          structured_output: {
+            ...draftAgent.model.structured_output,
+            mode: nextMode,
+          },
+        },
+        guardrails: {
+          ...draftAgent.guardrails,
+          privacy_mode: 'hybrid',
+        },
+      });
+    } else if (newProvider === 'openrouter') {
+      const nextMode = draftAgent.model.structured_output.mode === 'gbnf'
+        ? 'json_schema'
+        : draftAgent.model.structured_output.mode;
+      setDraftAgent({
+        ...draftAgent,
+        model: {
+          ...draftAgent.model,
+          provider: 'openrouter',
+          base_url: 'https://openrouter.ai/api/v1',
+          model_id: OPENROUTER_MODELS.some((m) => m.id === draftAgent.model.model_id)
+            ? draftAgent.model.model_id
+            : 'anthropic/claude-3.7-sonnet',
+          fallback_model_id: defaultLocalModel,
+          context_window: 65536,
+          max_tokens: 2048,
+          structured_output: {
+            ...draftAgent.model.structured_output,
+            mode: nextMode,
+          },
+        },
+        guardrails: {
+          ...draftAgent.guardrails,
+          privacy_mode: 'hybrid',
+        },
+      });
+    }
   };
 
   const isPage = displayMode === 'page';
@@ -988,80 +1114,321 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Section 1: Model & Decoding */}
-                    <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--cobalt-light)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Modèle LLM & Décodage
+                    {/* Section 1: Model & Decoding (LM Studio Local / Google Gemini API / OpenRouter API) */}
+                    <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--cobalt-light)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Modèle LLM & Décodage
+                          </span>
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontFamily: 'var(--font-mono)',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: draftAgent.model.provider === 'local_lmstudio' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(59, 130, 246, 0.16)',
+                            border: `1px solid ${draftAgent.model.provider === 'local_lmstudio' ? 'rgba(16, 185, 129, 0.35)' : 'rgba(59, 130, 246, 0.4)'}`,
+                            color: draftAgent.model.provider === 'local_lmstudio' ? '#34d399' : 'var(--cobalt-light)',
+                          }}>
+                            {draftAgent.model.provider === 'local_lmstudio'
+                              ? '● Inférence 100 % Locale (LM Studio)'
+                              : draftAgent.model.provider === 'gemini'
+                                ? '● Cloud Google AI Studio (Gemini API)'
+                                : '● Cloud Agrégateur (OpenRouter API)'}
+                          </span>
+                        </div>
+
+                        {/* Sélecteur rapide à 3 boutons pour les 3 moteurs supportés */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface-container-lowest)', padding: '3px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                          {([
+                            { id: 'local_lmstudio', label: 'LM Studio (Local)' },
+                            { id: 'gemini', label: 'API Google Gemini' },
+                            { id: 'openrouter', label: 'API OpenRouter' },
+                          ] as const).map((prov) => {
+                            const isSelected = draftAgent.model.provider === prov.id;
+                            return (
+                              <button
+                                key={prov.id}
+                                type="button"
+                                onClick={() => handleSelectProvider(prov.id)}
+                                style={{
+                                  padding: '5px 11px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.74rem',
+                                  fontWeight: isSelected ? 700 : 500,
+                                  cursor: 'pointer',
+                                  background: isSelected
+                                    ? prov.id === 'local_lmstudio'
+                                      ? 'rgba(16, 185, 129, 0.18)'
+                                      : 'rgba(37, 99, 235, 0.25)'
+                                    : 'transparent',
+                                  border: isSelected
+                                    ? `1px solid ${prov.id === 'local_lmstudio' ? 'rgba(16, 185, 129, 0.45)' : 'rgba(59, 130, 246, 0.55)'}`
+                                    : '1px solid transparent',
+                                  color: isSelected
+                                    ? prov.id === 'local_lmstudio'
+                                      ? '#34d399'
+                                      : 'var(--cobalt-light)'
+                                    : 'var(--text-dim)',
+                                }}
+                              >
+                                {prov.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
+
+                      {/* Ligne 1 : Fournisseur, Catalogue Modèle adapté au fournisseur, et Identifiant exact */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>Fournisseur</label>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            Fournisseur Actif
+                          </label>
                           <select
-                            value={draftAgent.model.provider}
-                            onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, provider: e.target.value } })}
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.8rem' }}
+                            value={
+                              ['local_lmstudio', 'gemini', 'openrouter'].includes(draftAgent.model.provider)
+                                ? draftAgent.model.provider
+                                : 'local_lmstudio'
+                            }
+                            onChange={(e) => handleSelectProvider(e.target.value as 'local_lmstudio' | 'gemini' | 'openrouter')}
+                            style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.8rem', fontWeight: 600 }}
                           >
-                            <option value="local_lmstudio">LM Studio (Local)</option>
-                            <option value="ollama">Ollama (Local)</option>
-                            <option value="openai">OpenAI (Cloud)</option>
-                            <option value="anthropic">Anthropic (Cloud)</option>
-                            <option value="gemini">Google Gemini (Cloud)</option>
+                            <option value="local_lmstudio">LM Studio (Local — OpenAI / llama.cpp)</option>
+                            <option value="gemini">Google Gemini API (Google AI Studio)</option>
+                            <option value="openrouter">OpenRouter API (Multi-Modèles Cloud)</option>
                           </select>
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>Modèle Principal</label>
-                          {availableModels.length > 0 ? (
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            {draftAgent.model.provider === 'gemini'
+                              ? 'Catalogue Google Gemini'
+                              : draftAgent.model.provider === 'openrouter'
+                                ? 'Catalogue OpenRouter Recommandé'
+                                : `Modèles LM Studio Détectés (${effectiveLocalModels.length})`}
+                          </label>
+                          {draftAgent.model.provider === 'gemini' ? (
                             <select
-                              value={availableModels.includes(draftAgent.model.model_id) ? draftAgent.model.model_id : '__custom__'}
+                              value={GEMINI_MODELS.some((m) => m.id === draftAgent.model.model_id) ? draftAgent.model.model_id : '__custom__'}
                               onChange={(e) => {
                                 if (e.target.value !== '__custom__') {
                                   setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, model_id: e.target.value } });
                                 }
                               }}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
+                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.78rem' }}
                             >
-                              {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
-                              <option value="__custom__">Saisie libre ci-dessous</option>
+                              {GEMINI_MODELS.map((m) => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                              ))}
+                              <option value="__custom__">+ Autre ID Gemini (saisie à droite)...</option>
+                            </select>
+                          ) : draftAgent.model.provider === 'openrouter' ? (
+                            <select
+                              value={OPENROUTER_MODELS.some((m) => m.id === draftAgent.model.model_id) ? draftAgent.model.model_id : '__custom__'}
+                              onChange={(e) => {
+                                if (e.target.value !== '__custom__') {
+                                  setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, model_id: e.target.value } });
+                                }
+                              }}
+                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.78rem' }}
+                            >
+                              {OPENROUTER_MODELS.map((m) => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                              ))}
+                              <option value="__custom__">+ Autre slug OpenRouter (saisie à droite)...</option>
                             </select>
                           ) : (
-                            <input
-                              type="text"
-                              value={draftAgent.model.model_id}
-                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, model_id: e.target.value } })}
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
-                            />
+                            <select
+                              value={effectiveLocalModels.includes(draftAgent.model.model_id) ? draftAgent.model.model_id : '__custom__'}
+                              onChange={(e) => {
+                                if (e.target.value !== '__custom__') {
+                                  setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, model_id: e.target.value } });
+                                }
+                              }}
+                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}
+                            >
+                              {effectiveLocalModels.map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                              <option value="__custom__">+ ID GGUF personnalisé (saisie à droite)...</option>
+                            </select>
                           )}
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>ID Modèle (ou Personnalisé)</label>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            {draftAgent.model.provider === 'gemini'
+                              ? 'ID Modèle Gemini'
+                              : draftAgent.model.provider === 'openrouter'
+                                ? 'Slug Modèle OpenRouter (vendor/model)'
+                                : 'Identifiant Modèle LM Studio'}
+                          </label>
                           <input
                             type="text"
+                            placeholder={
+                              draftAgent.model.provider === 'gemini'
+                                ? 'ex: gemini-2.5-flash'
+                                : draftAgent.model.provider === 'openrouter'
+                                  ? 'ex: anthropic/claude-3.7-sonnet'
+                                  : 'ex: mistral-small-3.2-24b-instruct-2506'
+                            }
                             value={draftAgent.model.model_id}
                             onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, model_id: e.target.value } })}
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}
+                            style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--gold)', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}
                           />
+                        </div>
+                      </div>
+
+                      {/* Ligne 2 : URL Endpoint (avec détection LM Studio) + Clé API (pour Gemini / OpenRouter) ou Modèle de Repli */}
+                      <div style={{ display: 'grid', gridTemplateColumns: draftAgent.model.provider === 'local_lmstudio' ? '1.4fr 1fr 0.8fr' : '1.15fr 1.15fr 0.9fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            {draftAgent.model.provider === 'gemini'
+                              ? 'URL Endpoint API Gemini (Compatible OpenAI)'
+                              : draftAgent.model.provider === 'openrouter'
+                                ? 'URL Endpoint API OpenRouter'
+                                : 'URL Serveur LM Studio Local'}
+                          </label>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input
+                              type="text"
+                              value={draftAgent.model.base_url}
+                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, base_url: e.target.value } })}
+                              style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                            />
+                            {draftAgent.model.provider === 'local_lmstudio' && (
+                              <button
+                                type="button"
+                                onClick={handleProbeLmStudio}
+                                disabled={isProbingLocalModels}
+                                style={{
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  background: 'rgba(37, 99, 235, 0.16)',
+                                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                                  color: 'var(--cobalt-light)',
+                                  fontSize: '0.74rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title="Interroger /v1/models sur l'instance LM Studio locale"
+                              >
+                                {isProbingLocalModels ? '...' : '↻ Détecter'}
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>URL Endpoint</label>
-                          <input
-                            type="text"
-                            value={draftAgent.model.base_url}
-                            onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, base_url: e.target.value } })}
-                            style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}
-                          />
-                        </div>
+                        {draftAgent.model.provider !== 'local_lmstudio' ? (
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                              {draftAgent.model.provider === 'gemini'
+                                ? 'Clé API Gemini (ou env GEMINI_API_KEY)'
+                                : 'Clé API OpenRouter (ou env OPENROUTER_API_KEY)'}
+                            </label>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <input
+                                type={showApiKey ? 'text' : 'password'}
+                                placeholder={
+                                  draftAgent.model.provider === 'gemini'
+                                    ? 'AIzaSy... (vide = variable GEMINI_API_KEY)'
+                                    : 'sk-or-v1-... (vide = variable OPENROUTER_API_KEY)'
+                                }
+                                value={draftAgent.model.api_key || ''}
+                                onChange={(e) => setDraftAgent({
+                                  ...draftAgent,
+                                  model: {
+                                    ...draftAgent.model,
+                                    api_key: e.target.value.trim() ? e.target.value : null,
+                                  },
+                                })}
+                                style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid rgba(59, 130, 246, 0.45)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                style={{
+                                  padding: '6px 9px',
+                                  borderRadius: '6px',
+                                  background: 'var(--surface-container-high)',
+                                  border: '1px solid var(--border)',
+                                  color: 'var(--text-muted)',
+                                  fontSize: '0.72rem',
+                                  cursor: 'pointer',
+                                }}
+                                title={showApiKey ? 'Masquer la clé API' : 'Afficher la clé API'}
+                              >
+                                <Eye size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                              Modèle de Repli Local (Fallback)
+                            </label>
+                            <input
+                              type="text"
+                              value={draftAgent.model.fallback_model_id}
+                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, fallback_model_id: e.target.value } })}
+                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                            />
+                          </div>
+                        )}
 
                         <div>
                           <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            Fenêtre de Contexte (Tokens)
+                          </label>
+                          <select
+                            value={draftAgent.model.context_window}
+                            onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, context_window: Number(e.target.value) } })}
+                            style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}
+                          >
+                            {draftAgent.model.provider === 'local_lmstudio' ? (
+                              <>
+                                <option value={4096}>4 096 tokens (4k VRAM)</option>
+                                <option value={8192}>8 192 tokens (8k Standard)</option>
+                                <option value={16384}>16 384 tokens (16k)</option>
+                                <option value={32768}>32 768 tokens (32k)</option>
+                                <option value={65536}>65 536 tokens (64k)</option>
+                                <option value={131072}>131 072 tokens (128k)</option>
+                              </>
+                            ) : draftAgent.model.provider === 'gemini' ? (
+                              <>
+                                <option value={32768}>32 768 tokens (32k)</option>
+                                <option value={131072}>131 072 tokens (128k Recommandé)</option>
+                                <option value={262144}>262 144 tokens (256k)</option>
+                                <option value={1048576}>1 048 576 tokens (1M Natif Gemini)</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value={16384}>16 384 tokens (16k)</option>
+                                <option value={32768}>32 768 tokens (32k)</option>
+                                <option value={65536}>65 536 tokens (64k Recommandé)</option>
+                                <option value={131072}>131 072 tokens (128k)</option>
+                                <option value={200000}>200 000 tokens (200k Claude)</option>
+                              </>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Ligne 3 : Température, Décodage Structuré + Max Tokens, et Modèle de Repli / Info Provider */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', alignItems: 'end' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
                             Température : <strong style={{ color: 'var(--gold)' }}>{draftAgent.model.temperature.toFixed(2)}</strong>
+                            <span style={{ marginLeft: '6px', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                              ({draftAgent.model.temperature <= 0.25 ? 'Déterministe / Canon' : draftAgent.model.temperature <= 0.7 ? 'Équilibré' : 'Créatif / Roleplay'})
+                            </span>
                           </label>
                           <input
                             type="range"
                             min={0}
-                            max={1.5}
+                            max={draftAgent.model.provider === 'gemini' ? 2.0 : 1.5}
                             step={0.05}
                             value={draftAgent.model.temperature}
                             onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, temperature: Number(e.target.value) } })}
@@ -1070,7 +1437,9 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                         </div>
 
                         <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>Décodage Structuré / Max Tokens</label>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            Décodage Structuré & Max Tokens Sortie
+                          </label>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <select
                               value={draftAgent.model.structured_output.mode}
@@ -1081,22 +1450,52 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                                   structured_output: { ...draftAgent.model.structured_output, mode: e.target.value as any },
                                 },
                               })}
-                              style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem' }}
+                              style={{ flex: 1, padding: '7px 8px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem' }}
                             >
-                              <option value="json_schema">JSON Schema</option>
-                              <option value="gbnf">GBNF</option>
-                              <option value="none">Libre</option>
+                              <option value="json_schema">JSON Schema (response_format)</option>
+                              {draftAgent.model.provider === 'local_lmstudio' && (
+                                <option value="gbnf">Grammaire GBNF (llama.cpp local)</option>
+                              )}
+                              <option value="none">Texte Libre (sans contrainte)</option>
                             </select>
                             <input
                               type="number"
                               min={128}
-                              max={16384}
+                              max={draftAgent.model.provider === 'gemini' ? 65536 : 32768}
                               value={draftAgent.model.max_tokens}
                               onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, max_tokens: Number(e.target.value) } })}
-                              style={{ width: '76px', padding: '6px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', textAlign: 'center' }}
+                              style={{ width: '82px', padding: '7px 6px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                              title="Nombre maximal de tokens générés en sortie"
                             />
                           </div>
                         </div>
+
+                        {draftAgent.model.provider !== 'local_lmstudio' ? (
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                              Modèle de Repli (Secours Local / Cloud)
+                            </label>
+                            <input
+                              type="text"
+                              value={draftAgent.model.fallback_model_id}
+                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, fallback_model_id: e.target.value } })}
+                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                              title="Modèle utilisé automatiquement en cas d'indisponibilité de l'API Cloud"
+                            />
+                          </div>
+                        ) : (
+                          <div style={{
+                            padding: '7px 10px',
+                            borderRadius: '6px',
+                            background: 'rgba(16, 185, 129, 0.08)',
+                            border: '1px solid rgba(16, 185, 129, 0.25)',
+                            fontSize: '0.72rem',
+                            color: 'var(--text-muted)',
+                            lineHeight: 1.35,
+                          }}>
+                            Aucune clé API requise • Souveraineté locale garantie (`Strict Local`).
+                          </div>
+                        )}
                       </div>
                     </div>
 

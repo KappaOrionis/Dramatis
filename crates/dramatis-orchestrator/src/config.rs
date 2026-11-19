@@ -211,10 +211,50 @@ impl ModelConfig {
 
     /// Converts this agent model configuration into a `dramatis_gateway::ModelProfile`.
     pub fn to_model_profile(&self, resolved_model: Option<String>) -> ModelProfile {
+        let prov = self.provider.trim().to_ascii_lowercase();
+        let raw_url = self.base_url.trim().trim_end_matches('/');
+
+        let normalized_base_url = match prov.as_str() {
+            "gemini" => {
+                if raw_url.is_empty() {
+                    "https://generativelanguage.googleapis.com/v1beta/openai".to_string()
+                } else if raw_url.ends_with("/v1beta") {
+                    format!("{}/openai", raw_url)
+                } else {
+                    raw_url.to_string()
+                }
+            }
+            "openrouter" => {
+                if raw_url.is_empty() {
+                    "https://openrouter.ai/api/v1".to_string()
+                } else {
+                    raw_url.to_string()
+                }
+            }
+            _ => {
+                if raw_url.is_empty() {
+                    "http://127.0.0.1:1234/v1".to_string()
+                } else {
+                    raw_url.to_string()
+                }
+            }
+        };
+
+        let resolved_api_key = self
+            .api_key
+            .as_ref()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .or_else(|| match prov.as_str() {
+                "gemini" => std::env::var("GEMINI_API_KEY").ok(),
+                "openrouter" => std::env::var("OPENROUTER_API_KEY").ok(),
+                _ => None,
+            });
+
         ModelProfile {
             model_name: resolved_model.unwrap_or_else(|| self.model_id.clone()),
-            base_url: self.base_url.clone(),
-            api_key: self.api_key.clone(),
+            base_url: normalized_base_url,
+            api_key: resolved_api_key,
             max_tokens: self.max_tokens,
             context_window: self.context_window,
             temperature: self.temperature,
@@ -333,7 +373,7 @@ impl AgentConfig {
     pub fn effective_strict_local(&self, theater_privacy: Option<&str>) -> bool {
         match self.guardrails.privacy_mode {
             PrivacyOverride::StrictLocal => true,
-            PrivacyOverride::Hybrid => theater_privacy == Some("strict_local"),
+            PrivacyOverride::Hybrid => false,
             PrivacyOverride::InheritTheater => theater_privacy.unwrap_or("strict_local") == "strict_local",
         }
     }

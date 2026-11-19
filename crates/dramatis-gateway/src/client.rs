@@ -48,27 +48,50 @@ impl SouffleurClient {
         let budgeter = ContextBudgeter::new(profile.context_window, profile.max_tokens);
         let pruned_messages = budgeter.prune_messages(messages);
 
-        let url = format!("{}/chat/completions", profile.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            profile.base_url.trim_end_matches('/')
+        );
 
         let mut body = json!({
             "model": profile.model_name,
             "messages": pruned_messages,
             "max_tokens": profile.max_tokens,
             "temperature": profile.temperature,
-            "keep_alive": "15m",
             "stream": false
         });
 
+        if profile.is_local {
+            body["keep_alive"] = json!("15m");
+        }
+
         if let Some(schema) = &json_schema {
-            body["response_format"] = json!({
-                "type": "json_object",
-                "schema": schema
-            });
+            if profile.is_local {
+                body["response_format"] = json!({
+                    "type": "json_object",
+                    "schema": schema
+                });
+            } else {
+                body["response_format"] = json!({
+                    "type": "json_object"
+                });
+            }
         }
 
         let mut req = self.client.post(&url).json(&body);
         if let Some(key) = &profile.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+            if !key.trim().is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", key.trim()));
+            }
+        }
+        if profile
+            .base_url
+            .to_ascii_lowercase()
+            .contains("openrouter.ai")
+        {
+            req = req
+                .header("HTTP-Referer", "http://127.0.0.1:4780")
+                .header("X-Title", "Dramatis Agentic RPG Harness");
         }
 
         let res = req.send().await?;
@@ -83,10 +106,7 @@ impl SouffleurClient {
 
         let res_json: Value = res.json().await?;
         let message_obj = &res_json["choices"][0]["message"];
-        let mut content = message_obj["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let mut content = message_obj["content"].as_str().unwrap_or("").to_string();
 
         // If content is empty (e.g. thinking models like Gemma 4 QAT where reasoning_content has the text)
         if content.trim().is_empty() {
@@ -112,21 +132,29 @@ impl SouffleurClient {
         messages: &[ChatMessage],
         json_schema: Option<Value>,
     ) -> Result<String, GatewayError> {
-        match self.complete_chat(primary, messages, json_schema.clone()).await {
+        match self
+            .complete_chat(primary, messages, json_schema.clone())
+            .await
+        {
             Ok(resp) => Ok(resp),
             Err(GatewayError::PrivacyViolation) => {
                 // If strict_local blocked primary cloud profile, immediately use local fallback
-                self.complete_chat(fallback_local, messages, json_schema).await
+                self.complete_chat(fallback_local, messages, json_schema)
+                    .await
             }
             Err(_) => {
                 // Network or API failure on primary -> fallback to local model
-                self.complete_chat(fallback_local, messages, json_schema).await
+                self.complete_chat(fallback_local, messages, json_schema)
+                    .await
             }
         }
     }
 
     /// Validates that a JSON string is valid JSON and contains all `required` top-level keys from the schema (`LLM-04`)
-    pub fn validate_json_against_schema(raw_json: &str, schema: &Value) -> Result<Value, GatewayError> {
+    pub fn validate_json_against_schema(
+        raw_json: &str,
+        schema: &Value,
+    ) -> Result<Value, GatewayError> {
         let parsed: Value = serde_json::from_str(raw_json)?;
         if let Some(required_arr) = schema.get("required").and_then(|r| r.as_array()) {
             for req_key in required_arr {
