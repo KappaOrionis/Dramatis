@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use dramatis_core::TheaterManifest;
 use dramatis_gateway::ModelProfile;
@@ -167,6 +167,42 @@ pub enum HitlMode {
     ApprovalRequired,
 }
 
+/// Global endpoint & credential settings for a single LLM provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderEndpointConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+}
+
+/// Workspace-wide LLM provider settings shared across all 7 agents and all theaters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GlobalProvidersConfig {
+    pub local_lmstudio: ProviderEndpointConfig,
+    pub gemini: ProviderEndpointConfig,
+    pub openrouter: ProviderEndpointConfig,
+}
+
+impl Default for GlobalProvidersConfig {
+    fn default() -> Self {
+        Self {
+            local_lmstudio: ProviderEndpointConfig {
+                base_url: "http://127.0.0.1:1234/v1".to_string(),
+                api_key: None,
+            },
+            gemini: ProviderEndpointConfig {
+                base_url: "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+                api_key: None,
+            },
+            openrouter: ProviderEndpointConfig {
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+                api_key: None,
+            },
+        }
+    }
+}
+
 /// Model provider & sampling configuration for an agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -202,11 +238,40 @@ impl ModelConfig {
     /// Returns true if the configured provider / endpoint targets local inference.
     pub fn is_local(&self) -> bool {
         let prov = self.provider.to_ascii_lowercase();
-        if matches!(prov.as_str(), "local_lmstudio" | "ollama" | "llamacpp" | "local") {
+        if matches!(
+            prov.as_str(),
+            "local_lmstudio" | "ollama" | "llamacpp" | "local"
+        ) {
             return true;
         }
         let lower_url = self.base_url.to_ascii_lowercase();
         lower_url.contains("127.0.0.1") || lower_url.contains("localhost")
+    }
+
+    /// Applies workspace-wide provider endpoint and API key defaults when not overridden per-agent.
+    pub fn apply_global_provider_defaults(&mut self, globals: &GlobalProvidersConfig) {
+        let prov = self.provider.trim().to_ascii_lowercase();
+        let entry = match prov.as_str() {
+            "local_lmstudio" | "local" => &globals.local_lmstudio,
+            "gemini" => &globals.gemini,
+            "openrouter" => &globals.openrouter,
+            _ => return,
+        };
+        if !entry.base_url.trim().is_empty() {
+            self.base_url = entry.base_url.trim().to_string();
+        }
+        if self
+            .api_key
+            .as_deref()
+            .map(|k| k.trim().is_empty())
+            .unwrap_or(true)
+        {
+            self.api_key = entry
+                .api_key
+                .as_ref()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty());
+        }
     }
 
     /// Converts this agent model configuration into a `dramatis_gateway::ModelProfile`.
@@ -374,7 +439,9 @@ impl AgentConfig {
         match self.guardrails.privacy_mode {
             PrivacyOverride::StrictLocal => true,
             PrivacyOverride::Hybrid => false,
-            PrivacyOverride::InheritTheater => theater_privacy.unwrap_or("strict_local") == "strict_local",
+            PrivacyOverride::InheritTheater => {
+                theater_privacy.unwrap_or("strict_local") == "strict_local"
+            }
         }
     }
 }
@@ -480,6 +547,33 @@ pub fn merge_json_values(base: &mut serde_json::Value, overlay: &serde_json::Val
 pub struct ConfigRegistry;
 
 impl ConfigRegistry {
+    /// Returns the path to the workspace-wide `.dramatis_providers.yaml` file.
+    pub fn global_providers_path(workspaces_root: &Path) -> PathBuf {
+        workspaces_root.join(".dramatis_providers.yaml")
+    }
+
+    /// Loads global LLM provider settings (LM Studio, Gemini, OpenRouter), falling back to defaults.
+    pub fn load_global_providers(workspaces_root: &Path) -> GlobalProvidersConfig {
+        let path = Self::global_providers_path(workspaces_root);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(parsed) = serde_yaml::from_str::<GlobalProvidersConfig>(&content) {
+                return parsed;
+            }
+        }
+        GlobalProvidersConfig::default()
+    }
+
+    /// Persists global LLM provider settings to `.dramatis_providers.yaml`.
+    pub fn save_global_providers(
+        workspaces_root: &Path,
+        cfg: &GlobalProvidersConfig,
+    ) -> Result<GlobalProvidersConfig, OrchestratorError> {
+        std::fs::create_dir_all(workspaces_root)?;
+        let yaml = serde_yaml::to_string(cfg)?;
+        std::fs::write(Self::global_providers_path(workspaces_root), yaml)?;
+        Ok(cfg.clone())
+    }
+
     /// Ensures `00_config/{agents,workflows,evals}` exist inside the given theater root.
     pub fn ensure_config_dirs(theater_root: &Path) -> Result<(), OrchestratorError> {
         std::fs::create_dir_all(Self::agents_dir(theater_root))?;
@@ -552,7 +646,11 @@ impl ConfigRegistry {
             merge_json_values(&mut merged, rt);
         }
 
-        let config: AgentConfig = serde_json::from_value(merged)?;
+        let mut config: AgentConfig = serde_json::from_value(merged)?;
+        if let Some(workspaces_root) = theater_root.parent() {
+            let globals = Self::load_global_providers(workspaces_root);
+            config.model.apply_global_provider_defaults(&globals);
+        }
         let yaml = serde_yaml::to_string(&config)?;
         let rel_path = format!("00_config/agents/{}.yaml", agent.short_key());
 
@@ -676,7 +774,9 @@ impl ConfigRegistry {
     }
 
     /// Lists all 7 resolved workflow graphs for a theater.
-    pub fn list_workflows(theater_root: &Path) -> Result<Vec<ResolvedWorkflowInfo>, OrchestratorError> {
+    pub fn list_workflows(
+        theater_root: &Path,
+    ) -> Result<Vec<ResolvedWorkflowInfo>, OrchestratorError> {
         let mut list = Vec::with_capacity(7);
         for agent in AgentId::all() {
             list.push(Self::resolve_workflow(theater_root, agent, None)?);

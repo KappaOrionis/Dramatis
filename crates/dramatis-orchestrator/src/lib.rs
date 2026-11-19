@@ -7,9 +7,10 @@ pub mod validation;
 pub mod workflows;
 
 pub use config::{
-    AgentConfig, AgentId, ConfigRegistry, GuardrailsConfig, HitlMode, LanguagePolicy, ModelConfig,
-    PrivacyOverride, PromptsConfig, ResolvedAgentInfo, ResolvedWorkflowInfo, StructuredOutputConfig,
-    StructuredOutputMode, ToolsConfig, ValidationProfile, WorkflowConfig, WorkflowStepConfig,
+    AgentConfig, AgentId, ConfigRegistry, GlobalProvidersConfig, GuardrailsConfig, HitlMode,
+    LanguagePolicy, ModelConfig, PrivacyOverride, PromptsConfig, ProviderEndpointConfig,
+    ResolvedAgentInfo, ResolvedWorkflowInfo, StructuredOutputConfig, StructuredOutputMode,
+    ToolsConfig, ValidationProfile, WorkflowConfig, WorkflowStepConfig,
 };
 pub use engine::{HitlDecision, OrchestratorEngine, WorkflowExecutionResult, WorkflowRequest};
 pub use error::OrchestratorError;

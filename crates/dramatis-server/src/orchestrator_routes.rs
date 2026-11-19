@@ -6,14 +6,14 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use dramatis_core::{Role, TheaterManifest, TheaterWorkspace};
 use dramatis_orchestrator::{
     AgentConfig, AgentId, ConfigRegistry, EvalRunReport, EvalRunner, EvalSuiteSummary,
-    ExecutionTrace, HitlApprovalRecord, HitlDecision, OrchestratorEngine, ResolvedAgentInfo,
-    ResolvedWorkflowInfo, TraceStore, TraceSummary, WorkflowConfig, WorkflowExecutionResult,
-    WorkflowRequest,
+    ExecutionTrace, GlobalProvidersConfig, HitlApprovalRecord, HitlDecision, OrchestratorEngine,
+    ResolvedAgentInfo, ResolvedWorkflowInfo, TraceStore, TraceSummary, WorkflowConfig,
+    WorkflowExecutionResult, WorkflowRequest,
 };
 
 use crate::{normalize_theater_dir, AppState};
@@ -77,6 +77,14 @@ fn resolve_theater_root(state: &AppState, id: &str) -> (PathBuf, Option<TheaterM
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        .route(
+            "/api/orchestrator/providers",
+            get(get_global_providers_handler).put(update_global_providers_handler),
+        )
+        .route(
+            "/api/orchestrator/providers/test",
+            post(test_provider_handler),
+        )
         .route(
             "/api/theaters/{id}/orchestrator/agents",
             get(list_agents_handler),
@@ -320,4 +328,122 @@ async fn run_eval_handler(
         .await
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+}
+
+async fn get_global_providers_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<GlobalProvidersConfig> {
+    Json(ConfigRegistry::load_global_providers(&state.workspaces_root))
+}
+
+async fn update_global_providers_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<GlobalProvidersConfig>,
+) -> Result<Json<GlobalProvidersConfig>, (StatusCode, String)> {
+    ConfigRegistry::save_global_providers(&state.workspaces_root, &payload)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct TestProviderPayload {
+    pub provider: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TestProviderResponse {
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub models: Vec<String>,
+    pub message: String,
+}
+
+async fn test_provider_handler(
+    Json(payload): Json<TestProviderPayload>,
+) -> Json<TestProviderResponse> {
+    let started = std::time::Instant::now();
+    let prov = payload.provider.trim().to_ascii_lowercase();
+    let base = payload.base_url.trim().trim_end_matches('/');
+    let url = format!("{}/models", base);
+
+    let resolved_key = payload
+        .api_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .map(str::to_string)
+        .or_else(|| match prov.as_str() {
+            "gemini" => std::env::var("GEMINI_API_KEY").ok(),
+            "openrouter" => std::env::var("OPENROUTER_API_KEY").ok(),
+            _ => None,
+        });
+
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(TestProviderResponse {
+                ok: false,
+                latency_ms: started.elapsed().as_millis() as u64,
+                models: vec![],
+                message: format!("Erreur client HTTP: {}", e),
+            });
+        }
+    };
+
+    let mut req = client.get(&url);
+    if let Some(key) = &resolved_key {
+        req = req.header("Authorization", format!("Bearer {}", key));
+    }
+    if base.to_ascii_lowercase().contains("openrouter.ai") {
+        req = req
+            .header("HTTP-Referer", "http://127.0.0.1:4780")
+            .header("X-Title", "Dramatis Agentic RPG Harness");
+    }
+
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            let latency_ms = started.elapsed().as_millis() as u64;
+            if !status.is_success() {
+                let err_body = resp.text().await.unwrap_or_default();
+                let short_err: String = err_body.chars().take(180).collect();
+                return Json(TestProviderResponse {
+                    ok: false,
+                    latency_ms,
+                    models: vec![],
+                    message: format!("HTTP {} — {}", status.as_u16(), short_err),
+                });
+            }
+
+            let mut models = Vec::new();
+            if let Ok(v) = resp.json::<serde_json::Value>().await {
+                if let Some(arr) = v["data"].as_array() {
+                    for m in arr {
+                        if let Some(id) = m["id"].as_str() {
+                            models.push(id.to_string());
+                        }
+                    }
+                }
+            }
+            models.sort();
+            Json(TestProviderResponse {
+                ok: true,
+                latency_ms,
+                message: format!("Connexion réussie ({} modèles accessibles)", models.len()),
+                models,
+            })
+        }
+        Err(e) => Json(TestProviderResponse {
+            ok: false,
+            latency_ms: started.elapsed().as_millis() as u64,
+            models: vec![],
+            message: format!("Erreur réseau : {}", e),
+        }),
+    }
 }

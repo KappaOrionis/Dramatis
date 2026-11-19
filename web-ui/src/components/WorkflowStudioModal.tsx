@@ -21,6 +21,7 @@ import {
   Copy,
   Check,
   ArrowLeft,
+  KeyRound,
 } from 'lucide-react';
 
 export interface StructuredOutputConfig {
@@ -209,6 +210,17 @@ export interface EvalRunReport {
   results: EvalCaseResult[];
 }
 
+export interface ProviderEndpointConfig {
+  base_url: string;
+  api_key?: string | null;
+}
+
+export interface GlobalProvidersConfig {
+  local_lmstudio: ProviderEndpointConfig;
+  gemini: ProviderEndpointConfig;
+  openrouter: ProviderEndpointConfig;
+}
+
 export interface WorkflowStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -219,7 +231,7 @@ export interface WorkflowStudioModalProps {
   displayMode?: 'modal' | 'page';
   theaters?: { id: string; name: string }[];
   onSelectTheater?: (theaterId: string) => void;
-  initialTab?: 'config' | 'playground' | 'approvals' | 'evals';
+  initialTab?: 'providers' | 'config' | 'playground' | 'approvals' | 'evals';
   onPendingApprovalsChange?: (count: number) => void;
 }
 
@@ -367,7 +379,22 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
   initialTab,
   onPendingApprovalsChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'config' | 'playground' | 'approvals' | 'evals'>(initialTab || 'config');
+  const [activeTab, setActiveTab] = useState<'providers' | 'config' | 'playground' | 'approvals' | 'evals'>(initialTab || 'config');
+
+  // Tab 0: Global Providers State
+  const [providersConfig, setProvidersConfig] = useState<GlobalProvidersConfig>({
+    local_lmstudio: { base_url: 'http://127.0.0.1:1234/v1', api_key: null },
+    gemini: { base_url: 'https://generativelanguage.googleapis.com/v1beta/openai', api_key: null },
+    openrouter: { base_url: 'https://openrouter.ai/api/v1', api_key: null },
+  });
+  const [isSavingProviders, setIsSavingProviders] = useState(false);
+  const [providersFeedback, setProvidersFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [showOpenRouterKey, setShowOpenRouterKey] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [providerTestResults, setProviderTestResults] = useState<
+    Record<string, { ok: boolean; latency_ms: number; models: string[]; message: string } | null>
+  >({});
 
   // Tab 1: Config State
   const [agents, setAgents] = useState<ResolvedAgentInfo[]>([]);
@@ -380,7 +407,6 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
   const [yamlPanelMode, setYamlPanelMode] = useState<'none' | 'export' | 'import'>('none');
   const [yamlBuffer, setYamlBuffer] = useState('');
   const [copiedYaml, setCopiedYaml] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [localModelsList, setLocalModelsList] = useState<string[]>(availableModels);
   const [isProbingLocalModels, setIsProbingLocalModels] = useState(false);
 
@@ -476,14 +502,27 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
     setOverrideOpenId(null);
   };
 
+  const loadProviders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/orchestrator/providers');
+      if (res.ok) {
+        const data: GlobalProvidersConfig = await res.json();
+        setProvidersConfig(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen && theaterId) {
+      loadProviders();
       loadConfigs();
       loadTraces();
       loadApprovals();
       loadEvals();
     }
-  }, [isOpen, theaterId, loadConfigs, loadTraces, loadApprovals, loadEvals]);
+  }, [isOpen, theaterId, loadProviders, loadConfigs, loadTraces, loadApprovals, loadEvals]);
 
   useEffect(() => {
     const agInfo = agents.find((a) => a.config.id === selectedAgentId) || agents[0];
@@ -695,23 +734,83 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
     });
   };
 
+  const handleTestProvider = async (providerId: 'local_lmstudio' | 'gemini' | 'openrouter') => {
+    setTestingProvider(providerId);
+    const cfg = providersConfig[providerId];
+    try {
+      const res = await fetch('/api/orchestrator/providers/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: providerId,
+          base_url: cfg.base_url,
+          api_key: cfg.api_key || null,
+        }),
+      });
+      if (res.ok) {
+        const data: { ok: boolean; latency_ms: number; models: string[]; message: string } = await res.json();
+        setProviderTestResults((prev) => ({ ...prev, [providerId]: data }));
+        if (providerId === 'local_lmstudio' && data.ok && data.models.length > 0) {
+          setLocalModelsList(data.models);
+        }
+      } else {
+        setProviderTestResults((prev) => ({
+          ...prev,
+          [providerId]: { ok: false, latency_ms: 0, models: [], message: `HTTP ${res.status}` },
+        }));
+      }
+    } catch {
+      setProviderTestResults((prev) => ({
+        ...prev,
+        [providerId]: { ok: false, latency_ms: 0, models: [], message: 'Erreur réseau lors du test.' },
+      }));
+    } finally {
+      setTestingProvider(null);
+    }
+  };
+
+  const handleSaveProviders = async () => {
+    setIsSavingProviders(true);
+    setProvidersFeedback(null);
+    try {
+      const res = await fetch('/api/orchestrator/providers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(providersConfig),
+      });
+      if (res.ok) {
+        const saved: GlobalProvidersConfig = await res.json();
+        setProvidersConfig(saved);
+        await loadConfigs();
+        setProvidersFeedback({ kind: 'ok', text: 'Fournisseurs LLM enregistrés et appliqués à tous les agents.' });
+      } else {
+        setProvidersFeedback({ kind: 'err', text: `Erreur : ${await res.text()}` });
+      }
+    } catch {
+      setProvidersFeedback({ kind: 'err', text: 'Erreur réseau lors de la sauvegarde des fournisseurs.' });
+    } finally {
+      setIsSavingProviders(false);
+    }
+  };
+
   const effectiveLocalModels = localModelsList.length > 0 ? localModelsList : availableModels;
 
   const handleProbeLmStudio = async () => {
-    if (!draftAgent) return;
     setIsProbingLocalModels(true);
+    setProvidersFeedback(null);
     try {
-      const url = `/api/llm/models?base_url=${encodeURIComponent(draftAgent.model.base_url || 'http://127.0.0.1:1234/v1')}`;
+      const base = providersConfig.local_lmstudio.base_url || 'http://127.0.0.1:1234/v1';
+      const url = `/api/llm/models?base_url=${encodeURIComponent(base)}`;
       const res = await fetch(url);
       if (res.ok) {
         const list: string[] = await res.json();
         if (Array.isArray(list) && list.length > 0) {
           setLocalModelsList(list);
-          setConfigFeedback({ kind: 'ok', text: `${list.length} modèle(s) détecté(s) sur LM Studio (${draftAgent.model.base_url}).` });
+          setProvidersFeedback({ kind: 'ok', text: `${list.length} modèle(s) détecté(s) sur LM Studio (${base}).` });
         }
       }
     } catch {
-      setConfigFeedback({ kind: 'err', text: 'Impossible de joindre le serveur LM Studio local.' });
+      setProvidersFeedback({ kind: 'err', text: 'Impossible de joindre le serveur LM Studio local.' });
     } finally {
       setIsProbingLocalModels(false);
     }
@@ -944,6 +1043,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
           flexShrink: 0,
         }}>
           {[
+            { id: 'providers' as const, label: '0. Fournisseurs LLM', icon: <KeyRound size={14} /> },
             { id: 'config' as const, label: '1. Agents & Workflows', icon: <SlidersHorizontal size={14} /> },
             { id: 'playground' as const, label: '2. Playground & Traces', icon: <Terminal size={14} /> },
             {
@@ -984,6 +1084,265 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
 
         {/* Main Tab Content */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {/* ======================== TAB 0 : FOURNISSEURS LLM ======================== */}
+          {activeTab === 'providers' && (
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--gold)' }}>
+                    Configuration Globale des Fournisseurs LLM
+                  </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+                    Définissez une seule fois vos URLs et clés API pour LM Studio, Google Gemini et OpenRouter. Tous les agents en héritent automatiquement.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveProviders}
+                  disabled={isSavingProviders}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '8px',
+                    background: 'var(--gold)',
+                    border: 'none',
+                    color: '#0B0C10',
+                    fontWeight: 700,
+                    fontSize: '0.84rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '7px',
+                  }}
+                >
+                  <Save size={15} />
+                  <span>{isSavingProviders ? 'Sauvegarde...' : 'Enregistrer les Fournisseurs'}</span>
+                </button>
+              </div>
+
+              {providersFeedback && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '0.82rem',
+                  background: providersFeedback.kind === 'ok' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                  border: `1px solid ${providersFeedback.kind === 'ok' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                  color: providersFeedback.kind === 'ok' ? '#34d399' : '#f87171',
+                }}>
+                  {providersFeedback.text}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                {/* Carte 1 : LM Studio (Local) */}
+                <div style={{ background: 'var(--surface-elevated)', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '12px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: '#34d399', fontSize: '0.95rem' }}>LM Studio (Local)</strong>
+                    <span style={{ fontSize: '0.66rem', fontFamily: 'var(--font-mono)', padding: '2px 7px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.14)', color: '#34d399' }}>
+                      Strict Local
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                    Inférence 100 % locale sans clé API. Compatible OpenAI &amp; grammaires GBNF.
+                  </p>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>URL Serveur LM Studio</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={providersConfig.local_lmstudio.base_url}
+                        onChange={(e) => setProvidersConfig({
+                          ...providersConfig,
+                          local_lmstudio: { ...providersConfig.local_lmstudio, base_url: e.target.value },
+                        })}
+                        style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleProbeLmStudio}
+                        disabled={isProbingLocalModels}
+                        style={{ padding: '6px 10px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#34d399', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        {isProbingLocalModels ? '...' : '↻ Détecter'}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                      {effectiveLocalModels.length} modèle(s) détecté(s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleTestProvider('local_lmstudio')}
+                      disabled={testingProvider === 'local_lmstudio'}
+                      style={{ padding: '5px 10px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.14)', border: '1px solid rgba(16, 185, 129, 0.35)', color: '#34d399', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {testingProvider === 'local_lmstudio' ? 'Test en cours...' : 'Tester & Lister'}
+                    </button>
+                  </div>
+                  {providerTestResults.local_lmstudio && (
+                    <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'var(--canvas)', border: `1px solid ${providerTestResults.local_lmstudio.ok ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.4)'}`, fontSize: '0.72rem' }}>
+                      <div style={{ color: providerTestResults.local_lmstudio.ok ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                        {providerTestResults.local_lmstudio.ok ? '✓' : '✗'} {providerTestResults.local_lmstudio.message} ({providerTestResults.local_lmstudio.latency_ms} ms)
+                      </div>
+                      {providerTestResults.local_lmstudio.models.length > 0 && (
+                        <div style={{ marginTop: '6px', maxHeight: '95px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {providerTestResults.local_lmstudio.models.map((m) => (
+                            <div key={m}>• {m}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Carte 2 : Google Gemini API */}
+                <div style={{ background: 'var(--surface-elevated)', border: '1px solid rgba(59, 130, 246, 0.4)', borderRadius: '12px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: 'var(--cobalt-light)', fontSize: '0.95rem' }}>Google Gemini API</strong>
+                    <span style={{ fontSize: '0.66rem', fontFamily: 'var(--font-mono)', padding: '2px 7px', borderRadius: '4px', background: 'rgba(59, 130, 246, 0.16)', color: 'var(--cobalt-light)' }}>
+                      Cloud
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                    Endpoint OpenAI-compatible de Google AI Studio. Repli sur <code>GEMINI_API_KEY</code> si vide.
+                  </p>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>URL Endpoint Gemini</label>
+                    <input
+                      type="text"
+                      value={providersConfig.gemini.base_url}
+                      onChange={(e) => setProvidersConfig({
+                        ...providersConfig,
+                        gemini: { ...providersConfig.gemini, base_url: e.target.value },
+                      })}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>Clé API Gemini</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type={showGeminiKey ? 'text' : 'password'}
+                        placeholder="AIzaSy... (ou env GEMINI_API_KEY)"
+                        value={providersConfig.gemini.api_key || ''}
+                        onChange={(e) => setProvidersConfig({
+                          ...providersConfig,
+                          gemini: { ...providersConfig.gemini, api_key: e.target.value.trim() ? e.target.value : null },
+                        })}
+                        style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid rgba(59, 130, 246, 0.45)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGeminiKey(!showGeminiKey)}
+                        style={{ padding: '6px 9px', borderRadius: '6px', background: 'var(--surface-container-high)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      >
+                        <Eye size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTestProvider('gemini')}
+                      disabled={testingProvider === 'gemini'}
+                      style={{ padding: '5px 12px', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.16)', border: '1px solid rgba(59, 130, 246, 0.4)', color: 'var(--cobalt-light)', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {testingProvider === 'gemini' ? 'Test en cours...' : 'Tester API & Lister les modèles'}
+                    </button>
+                  </div>
+                  {providerTestResults.gemini && (
+                    <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'var(--canvas)', border: `1px solid ${providerTestResults.gemini.ok ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.4)'}`, fontSize: '0.72rem' }}>
+                      <div style={{ color: providerTestResults.gemini.ok ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                        {providerTestResults.gemini.ok ? '✓' : '✗'} {providerTestResults.gemini.message} ({providerTestResults.gemini.latency_ms} ms)
+                      </div>
+                      {providerTestResults.gemini.models.length > 0 && (
+                        <div style={{ marginTop: '6px', maxHeight: '95px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {providerTestResults.gemini.models.map((m) => (
+                            <div key={m}>• {m}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Carte 3 : OpenRouter API */}
+                <div style={{ background: 'var(--surface-elevated)', border: '1px solid rgba(245, 158, 11, 0.38)', borderRadius: '12px', padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong style={{ color: 'var(--gold)', fontSize: '0.95rem' }}>OpenRouter API</strong>
+                    <span style={{ fontSize: '0.66rem', fontFamily: 'var(--font-mono)', padding: '2px 7px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--gold)' }}>
+                      Cloud
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                    Routeur multi-modèles (Claude, DeepSeek, Mistral, Qwen). Repli sur <code>OPENROUTER_API_KEY</code> si vide.
+                  </p>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>URL Endpoint OpenRouter</label>
+                    <input
+                      type="text"
+                      value={providersConfig.openrouter.base_url}
+                      onChange={(e) => setProvidersConfig({
+                        ...providersConfig,
+                        openrouter: { ...providersConfig.openrouter, base_url: e.target.value },
+                      })}
+                      style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>Clé API OpenRouter</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type={showOpenRouterKey ? 'text' : 'password'}
+                        placeholder="sk-or-v1-... (ou env OPENROUTER_API_KEY)"
+                        value={providersConfig.openrouter.api_key || ''}
+                        onChange={(e) => setProvidersConfig({
+                          ...providersConfig,
+                          openrouter: { ...providersConfig.openrouter, api_key: e.target.value.trim() ? e.target.value : null },
+                        })}
+                        style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid rgba(245, 158, 11, 0.45)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
+                        style={{ padding: '6px 9px', borderRadius: '6px', background: 'var(--surface-container-high)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      >
+                        <Eye size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleTestProvider('openrouter')}
+                      disabled={testingProvider === 'openrouter'}
+                      style={{ padding: '5px 12px', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: 'var(--gold)', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {testingProvider === 'openrouter' ? 'Test en cours...' : 'Tester API & Lister les modèles'}
+                    </button>
+                  </div>
+                  {providerTestResults.openrouter && (
+                    <div style={{ padding: '8px 10px', borderRadius: '6px', background: 'var(--canvas)', border: `1px solid ${providerTestResults.openrouter.ok ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.4)'}`, fontSize: '0.72rem' }}>
+                      <div style={{ color: providerTestResults.openrouter.ok ? '#34d399' : '#f87171', fontWeight: 600 }}>
+                        {providerTestResults.openrouter.ok ? '✓' : '✗'} {providerTestResults.openrouter.message} ({providerTestResults.openrouter.latency_ms} ms)
+                      </div>
+                      {providerTestResults.openrouter.models.length > 0 && (
+                        <div style={{ marginTop: '6px', maxHeight: '95px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-dim)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {providerTestResults.openrouter.models.slice(0, 60).map((m) => (
+                            <div key={m}>• {m}</div>
+                          ))}
+                          {providerTestResults.openrouter.models.length > 60 && (
+                            <div style={{ color: 'var(--gold)' }}>… et {providerTestResults.openrouter.models.length - 60} autres modèles</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ======================== TAB 1 : AGENTS & WORKFLOWS ======================== */}
           {activeTab === 'config' && (
             <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '290px 1fr', overflow: 'hidden' }}>
@@ -1280,103 +1639,48 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Ligne 2 : URL Endpoint (avec détection LM Studio) + Clé API (pour Gemini / OpenRouter) ou Modèle de Repli */}
-                      <div style={{ display: 'grid', gridTemplateColumns: draftAgent.model.provider === 'local_lmstudio' ? '1.4fr 1fr 0.8fr' : '1.15fr 1.15fr 0.9fr', gap: '12px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                            {draftAgent.model.provider === 'gemini'
-                              ? 'URL Endpoint API Gemini (Compatible OpenAI)'
-                              : draftAgent.model.provider === 'openrouter'
-                                ? 'URL Endpoint API OpenRouter'
-                                : 'URL Serveur LM Studio Local'}
-                          </label>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <input
-                              type="text"
-                              value={draftAgent.model.base_url}
-                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, base_url: e.target.value } })}
-                              style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
-                            />
-                            {draftAgent.model.provider === 'local_lmstudio' && (
-                              <button
-                                type="button"
-                                onClick={handleProbeLmStudio}
-                                disabled={isProbingLocalModels}
-                                style={{
-                                  padding: '6px 10px',
-                                  borderRadius: '6px',
-                                  background: 'rgba(37, 99, 235, 0.16)',
-                                  border: '1px solid rgba(59, 130, 246, 0.4)',
-                                  color: 'var(--cobalt-light)',
-                                  fontSize: '0.74rem',
-                                  fontWeight: 600,
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                }}
-                                title="Interroger /v1/models sur l'instance LM Studio locale"
-                              >
-                                {isProbingLocalModels ? '...' : '↻ Détecter'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {draftAgent.model.provider !== 'local_lmstudio' ? (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                      {/* Ligne 2 : Héritage Global Endpoint/Clé + Fenêtre de Contexte + Modèle de Repli */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 1fr', gap: '12px', alignItems: 'end' }}>
+                        <div style={{
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-lowest)',
+                          border: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px',
+                        }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                              Endpoint &amp; Clé API (Global)
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {draftAgent.model.provider === 'gemini'
-                                ? 'Clé API Gemini (ou env GEMINI_API_KEY)'
-                                : 'Clé API OpenRouter (ou env OPENROUTER_API_KEY)'}
-                            </label>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <input
-                                type={showApiKey ? 'text' : 'password'}
-                                placeholder={
-                                  draftAgent.model.provider === 'gemini'
-                                    ? 'AIzaSy... (vide = variable GEMINI_API_KEY)'
-                                    : 'sk-or-v1-... (vide = variable OPENROUTER_API_KEY)'
-                                }
-                                value={draftAgent.model.api_key || ''}
-                                onChange={(e) => setDraftAgent({
-                                  ...draftAgent,
-                                  model: {
-                                    ...draftAgent.model,
-                                    api_key: e.target.value.trim() ? e.target.value : null,
-                                  },
-                                })}
-                                style={{ flex: 1, padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid rgba(59, 130, 246, 0.45)', color: 'var(--text-main)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowApiKey(!showApiKey)}
-                                style={{
-                                  padding: '6px 9px',
-                                  borderRadius: '6px',
-                                  background: 'var(--surface-container-high)',
-                                  border: '1px solid var(--border)',
-                                  color: 'var(--text-muted)',
-                                  fontSize: '0.72rem',
-                                  cursor: 'pointer',
-                                }}
-                                title={showApiKey ? 'Masquer la clé API' : 'Afficher la clé API'}
-                              >
-                                <Eye size={13} />
-                              </button>
+                                ? `${providersConfig.gemini.base_url} • ${providersConfig.gemini.api_key ? 'Clé configurée ✓' : 'Env GEMINI_API_KEY'}`
+                                : draftAgent.model.provider === 'openrouter'
+                                  ? `${providersConfig.openrouter.base_url} • ${providersConfig.openrouter.api_key ? 'Clé configurée ✓' : 'Env OPENROUTER_API_KEY'}`
+                                  : `${providersConfig.local_lmstudio.base_url} • Local`}
                             </div>
                           </div>
-                        ) : (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                              Modèle de Repli Local (Fallback)
-                            </label>
-                            <input
-                              type="text"
-                              value={draftAgent.model.fallback_model_id}
-                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, fallback_model_id: e.target.value } })}
-                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
-                            />
-                          </div>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('providers')}
+                            style={{
+                              padding: '4px 9px',
+                              borderRadius: '5px',
+                              background: 'rgba(37, 99, 235, 0.16)',
+                              border: '1px solid rgba(59, 130, 246, 0.35)',
+                              color: 'var(--cobalt-light)',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Configurer →
+                          </button>
+                        </div>
 
                         <div>
                           <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
@@ -1414,10 +1718,23 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                             )}
                           </select>
                         </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                            Modèle de Repli (Fallback)
+                          </label>
+                          <input
+                            type="text"
+                            value={draftAgent.model.fallback_model_id}
+                            onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, fallback_model_id: e.target.value } })}
+                            style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
+                            title="Modèle utilisé automatiquement en cas d'indisponibilité"
+                          />
+                        </div>
                       </div>
 
-                      {/* Ligne 3 : Température, Décodage Structuré + Max Tokens, et Modèle de Repli / Info Provider */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', alignItems: 'end' }}>
+                      {/* Ligne 3 : Température & Décodage Structuré + Max Tokens */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'end' }}>
                         <div>
                           <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
                             Température : <strong style={{ color: 'var(--gold)' }}>{draftAgent.model.temperature.toFixed(2)}</strong>
@@ -1469,33 +1786,6 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                             />
                           </div>
                         </div>
-
-                        {draftAgent.model.provider !== 'local_lmstudio' ? (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                              Modèle de Repli (Secours Local / Cloud)
-                            </label>
-                            <input
-                              type="text"
-                              value={draftAgent.model.fallback_model_id}
-                              onChange={(e) => setDraftAgent({ ...draftAgent, model: { ...draftAgent.model, fallback_model_id: e.target.value } })}
-                              style={{ width: '100%', padding: '7px 9px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.76rem', fontFamily: 'var(--font-mono)' }}
-                              title="Modèle utilisé automatiquement en cas d'indisponibilité de l'API Cloud"
-                            />
-                          </div>
-                        ) : (
-                          <div style={{
-                            padding: '7px 10px',
-                            borderRadius: '6px',
-                            background: 'rgba(16, 185, 129, 0.08)',
-                            border: '1px solid rgba(16, 185, 129, 0.25)',
-                            fontSize: '0.72rem',
-                            color: 'var(--text-muted)',
-                            lineHeight: 1.35,
-                          }}>
-                            Aucune clé API requise • Souveraineté locale garantie (`Strict Local`).
-                          </div>
-                        )}
                       </div>
                     </div>
 
