@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Bot,
   Play,
@@ -20,6 +20,7 @@ import {
   FlaskConical,
   Copy,
   Check,
+  ArrowLeft,
 } from 'lucide-react';
 
 export interface StructuredOutputConfig {
@@ -215,6 +216,11 @@ export interface WorkflowStudioModalProps {
   theaterName: string;
   availableModels: string[];
   onConfigSaved?: () => void;
+  displayMode?: 'modal' | 'page';
+  theaters?: { id: string; name: string }[];
+  onSelectTheater?: (theaterId: string) => void;
+  initialTab?: 'config' | 'playground' | 'approvals' | 'evals';
+  onPendingApprovalsChange?: (count: number) => void;
 }
 
 const WORKFLOW_EXAMPLES: Record<string, any> = {
@@ -335,8 +341,13 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
   theaterName,
   availableModels,
   onConfigSaved,
+  displayMode = 'modal',
+  theaters,
+  onSelectTheater,
+  initialTab,
+  onPendingApprovalsChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'config' | 'playground' | 'approvals' | 'evals'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'playground' | 'approvals' | 'evals'>(initialTab || 'config');
 
   // Tab 1: Config State
   const [agents, setAgents] = useState<ResolvedAgentInfo[]>([]);
@@ -425,6 +436,23 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
     }
   }, [theaterId]);
 
+  const onPendingApprovalsChangeRef = useRef(onPendingApprovalsChange);
+
+  useEffect(() => {
+    onPendingApprovalsChangeRef.current = onPendingApprovalsChange;
+  }, [onPendingApprovalsChange]);
+
+  const resetTheaterTransientState = () => {
+    setInspectedTrace(null);
+    setEvalReport(null);
+    setConfigFeedback(null);
+    setApprovalFeedback(null);
+    setPlayError(null);
+    setEvalError(null);
+    setYamlPanelMode('none');
+    setOverrideOpenId(null);
+  };
+
   useEffect(() => {
     if (isOpen && theaterId) {
       loadConfigs();
@@ -444,10 +472,14 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
     }
   }, [selectedAgentId, agents, workflows, yamlPanelMode]);
 
-  if (!isOpen) return null;
-
   const selectedResolvedAgent = agents.find((a) => a.config.id === selectedAgentId);
   const pendingApprovalsCount = approvals.filter((a) => a.status === 'pending').length;
+
+  useEffect(() => {
+    onPendingApprovalsChangeRef.current?.(pendingApprovalsCount);
+  }, [pendingApprovalsCount]);
+
+  if (!isOpen) return null;
 
   const handleSaveConfig = async () => {
     if (!draftAgent || !draftWorkflow) return;
@@ -640,69 +672,140 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
     });
   };
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5, 7, 11, 0.82)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+  const isPage = displayMode === 'page';
+
+  const studioContent = (
+    <div style={isPage ? {
+      width: '100%',
+      height: '100%',
+      background: 'var(--canvas)',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      minHeight: 0,
+    } : {
+      width: 'min(1280px, 96vw)',
+      height: 'min(88vh, 860px)',
+      background: 'var(--surface)',
+      border: '1px solid rgba(59, 130, 246, 0.38)',
+      borderRadius: '16px',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      boxShadow: '0 24px 60px rgba(0, 0, 0, 0.85)',
+    }}>
+      {/* Top Header */}
       <div style={{
-        width: 'min(1280px, 96vw)',
-        height: 'min(88vh, 860px)',
-        background: 'var(--surface)',
-        border: '1px solid rgba(59, 130, 246, 0.38)',
-        borderRadius: '16px',
+        padding: isPage ? '18px 28px' : '16px 24px',
+        borderBottom: '1px solid var(--border-subtle)',
+        background: 'var(--surface-container-lowest)',
         display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        boxShadow: '0 24px 60px rgba(0, 0, 0, 0.85)',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '16px',
+        flexWrap: 'wrap',
+        flexShrink: 0,
       }}>
-        {/* Top Header */}
-        <div style={{
-          padding: '16px 24px',
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--surface-container-lowest)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '10px',
-              background: 'rgba(37, 99, 235, 0.16)',
-              border: '1px solid rgba(59, 130, 246, 0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Bot size={20} color="var(--cobalt-light)" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '38px',
+            height: '38px',
+            borderRadius: '10px',
+            background: 'rgba(37, 99, 235, 0.16)',
+            border: '1px solid rgba(59, 130, 246, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <Bot size={20} color="var(--cobalt-light)" />
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)' }}>
+              {isPage ? 'Paramètres — Workflows, Agents & Évaluations' : 'Studio Agentique & Orchestrateur Dramatis'}
             </div>
-            <div>
-              <div style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                Studio Agentique & Orchestrateur Dramatis
-              </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
-                Univers actif : <strong style={{ color: 'var(--gold)' }}>{theaterName}</strong> • Configuration YAML, Validation 4 Portes (G1–G4), Traces & Évals
-              </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+              {isPage ? (
+                <>Configuration générale des 7 workflows agentiques, validation 4 portes (G1–G4), playground et suites d'évaluation canoniques</>
+              ) : (
+                <>Univers actif : <strong style={{ color: 'var(--gold)' }}>{theaterName}</strong> • Configuration YAML, Validation 4 Portes (G1–G4), Traces & Évals</>
+              )}
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: '6px',
-              borderRadius: '8px',
-              background: 'var(--surface-elevated)',
-              border: '1px solid var(--border)',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-            }}
-            title="Fermer le Studio"
-          >
-            <X size={18} />
-          </button>
         </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {theaters && theaters.length > 0 && onSelectTheater && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              <span>Univers ciblé :</span>
+              <select
+                value={theaterId}
+                onChange={(e) => {
+                  resetTheaterTransientState();
+                  onSelectTheater(e.target.value);
+                }}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  background: 'var(--surface-container-high)',
+                  border: '1px solid rgba(59, 130, 246, 0.4)',
+                  color: 'var(--cobalt-light)',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {theaters.map((th) => (
+                  <option key={th.id} value={th.id} style={{ background: '#10141a', color: '#dfe2eb' }}>
+                    {th.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {isPage ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '7px 14px',
+                borderRadius: '8px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-main)',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="Revenir à l'écran précédent"
+            >
+              <ArrowLeft size={15} />
+              <span>Retour</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '6px',
+                borderRadius: '8px',
+                background: 'var(--surface-elevated)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+              }}
+              title="Fermer le Studio"
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
+      </div>
 
         {/* Navigation Tabs */}
         <div style={{
@@ -712,6 +815,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
           padding: '10px 24px',
           borderBottom: '1px solid var(--border-subtle)',
           background: 'rgba(15, 23, 42, 0.45)',
+          flexShrink: 0,
         }}>
           {[
             { id: 'config' as const, label: '1. Agents & Workflows', icon: <SlidersHorizontal size={14} /> },
@@ -753,16 +857,17 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
         </div>
 
         {/* Main Tab Content */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {/* ======================== TAB 1 : AGENTS & WORKFLOWS ======================== */}
           {activeTab === 'config' && (
-            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '290px 1fr', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '290px 1fr', overflow: 'hidden' }}>
               {/* Left Sidebar: 7 Agents */}
               <div style={{
                 borderRight: '1px solid var(--border-subtle)',
                 background: 'var(--surface-container-lowest)',
                 padding: '14px',
                 overflowY: 'auto',
+                minHeight: 0,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '8px',
@@ -831,8 +936,8 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
 
               {/* Right Panel: Detailed Editor */}
               {draftAgent && draftWorkflow ? (
-                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+                  <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
                     {/* Agent Header & Enable Toggles */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
                       <div>
@@ -1334,8 +1439,8 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
 
           {/* ======================== TAB 2 : PLAYGROUND & TRACES ======================== */}
           {activeTab === 'playground' && (
-            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 310px', overflow: 'hidden' }}>
-              <div style={{ padding: '18px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 310px', overflow: 'hidden' }}>
+              <div style={{ padding: '18px 24px', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {/* Controls Row */}
                 <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
@@ -1500,7 +1605,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
               </div>
 
               {/* Right Column: Trace History */}
-              <div style={{ borderLeft: '1px solid var(--border-subtle)', background: 'var(--surface-container-lowest)', padding: '14px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ borderLeft: '1px solid var(--border-subtle)', background: 'var(--surface-container-lowest)', padding: '14px', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px' }}>
                   <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
                     Traces Récentes ({tracesList.length})
@@ -1544,7 +1649,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
 
           {/* ======================== TAB 3 : FILE D'APPROBATION MJ (G4) ======================== */}
           {activeTab === 'approvals' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
                   Toute mutation d’agent configurée en mode <strong>Validation MJ requise</strong> passe par cette file d’attente avant d’être écrite sur disque.
@@ -1647,7 +1752,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
 
           {/* ======================== TAB 4 : ÉVALUATIONS CANONIQUES ======================== */}
           {activeTab === 'evals' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <select
@@ -1752,7 +1857,16 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
             </div>
           )}
         </div>
-      </div>
+    </div>
+  );
+
+  if (isPage) {
+    return studioContent;
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5, 7, 11, 0.82)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+      {studioContent}
     </div>
   );
 };

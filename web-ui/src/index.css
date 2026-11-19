@@ -10,6 +10,9 @@
   --surface-high: #262a31;        /* Cartes en survol ou sélection */
   --surface-highest: #31353c;     /* Éléments contrastés */
   --surface-bright: #353940;      /* En-têtes élevés */
+  --surface-container-lowest: var(--surface-lowest);
+  --surface-container-low: var(--surface-low);
+  --surface-container-high: var(--surface-high);
 
   --sidebar-bg: #10141a;          /* Volet latéral */
   --sidebar-hover: #181c22;
@@ -28,6 +31,7 @@
   --on-primary: #472a00;
   --on-primary-container: #613b00;
   --gold: #f59e0b;
+  --amber: var(--gold);
   --gold-bright: #ffc174;
   --gold-glow: rgba(245, 158, 11, 0.2);
   --gold-surface: rgba(245, 158, 11, 0.08);
@@ -39,6 +43,8 @@
   --cobalt-500: #3b82f6;
   --cobalt-600: #2563eb;
   --cobalt-700: #1d4ed8;
+  --cobalt-core: var(--cobalt-500);
+  --cobalt-light: var(--cobalt-400);
   --cobalt-glow: rgba(59, 130, 246, 0.25);
   --cobalt-surface: rgba(59, 130, 246, 0.1);
 

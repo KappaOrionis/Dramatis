@@ -41,6 +41,10 @@ import {
   Globe,
   Settings,
   Volume2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ArrowLeft,
+  Library,
 } from 'lucide-react';
 import { WorkflowStudioModal } from './components/WorkflowStudioModal';
 
@@ -150,8 +154,10 @@ interface TheaterDetails {
 }
 
 export default function App() {
-  // Navigation principale : Landing Page (style Gemini Notebook) ou Vue Studio de l'univers actif
-  const [currentView, setCurrentView] = useState<'landing' | 'studio'>('landing');
+  // Navigation principale : Bibliothèque d'Univers, Fiche Univers (Studio) ou Paramètres Workflows & Évaluations
+  const [currentView, setCurrentView] = useState<'landing' | 'studio' | 'settings'>('landing');
+  const [previousView, setPreviousView] = useState<'landing' | 'studio'>('landing');
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
 
   // Filtre et recherche sur la Landing Page
   const [landingSearch, setLandingSearch] = useState('');
@@ -178,9 +184,15 @@ export default function App() {
   const [renamingTheater, setRenamingTheater] = useState<string | null>(null);
   const [renamedTitle, setRenamedTitle] = useState('');
 
-  // Modale de Studio Agentique & Orchestrateur des 7 Workflows
-  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [, setTheaterDetails] = useState<TheaterDetails | null>(null);
+
+  const openSettingsScreen = () => {
+    if (currentView !== 'settings') {
+      setPreviousView(currentView);
+    }
+    setIsDrawerOpen(false);
+    setCurrentView('settings');
+  };
 
   // Données de l'univers actif
   const [signalSheet, setSignalSheet] = useState<TheaterSignalSheet | null>(null);
@@ -313,14 +325,15 @@ export default function App() {
 
   const loadTheaterAll = async (theaterId: string) => {
     try {
-      const [sigRes, srcRes, wikiRes, snapRes, persRes, logsRes, detailsRes] = await Promise.all([
+      const [sigRes, srcRes, wikiRes, snapRes, persRes, logsRes, detailsRes, aprRes] = await Promise.all([
         fetch(`/api/theaters/${theaterId}/signal-sheet`),
         fetch(`/api/theaters/${theaterId}/sources`),
         fetch(`/api/theaters/${theaterId}/wiki`),
         fetch(`/api/theaters/${theaterId}/snapshots`),
         fetch(`/api/theaters/${theaterId}/personae`),
         fetch(`/api/theaters/${theaterId}/stage/logs`),
-        fetch(`/api/theaters/${theaterId}`)
+        fetch(`/api/theaters/${theaterId}`),
+        fetch(`/api/theaters/${theaterId}/orchestrator/approvals?status=pending`).catch(() => null),
       ]);
 
       if (sigRes.ok) setSignalSheet(await sigRes.json());
@@ -348,6 +361,12 @@ export default function App() {
       if (detailsRes.ok) {
         const det: TheaterDetails = await detailsRes.json();
         setTheaterDetails(det);
+      }
+      if (aprRes && aprRes.ok) {
+        const pending = await aprRes.json();
+        setPendingApprovalsCount(Array.isArray(pending) ? pending.length : 0);
+      } else {
+        setPendingApprovalsCount(0);
       }
     } catch (e) {
       console.error(e);
@@ -938,10 +957,10 @@ export default function App() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
 
 {/* =========================================================================
-          SHARED COMPONENT: SideNavBar (Barre Latérale Tactique Stitch Dark UI)
+          SHARED COMPONENT: SideNavBar (Barre Latérale Tactique Adaptative - Prop. 2)
          ========================================================================= */}
           <aside style={{
-            width: isSidebarCollapsed ? '68px' : '288px',
+            width: isSidebarCollapsed ? '68px' : '272px',
             background: 'var(--surface-container-lowest)',
             borderRight: '1px solid rgba(255, 255, 255, 0.08)',
             display: 'flex',
@@ -952,475 +971,667 @@ export default function App() {
             zIndex: 20,
             boxShadow: '8px 0 24px rgba(0, 0, 0, 0.65)'
           }}>
-            {/* Zone Haut : Marque & Nexus */}
+            {/* Zone Haut : Marque & Repliage unique */}
             <div style={{
-              padding: isSidebarCollapsed ? '16px 8px' : '20px 18px',
+              padding: isSidebarCollapsed ? '14px 8px' : '16px 16px',
               borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
               display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
+              alignItems: 'center',
+              justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+              gap: '10px'
             }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
-                gap: '10px'
-              }}>
-                <div
-                  onClick={() => setCurrentView('landing')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    cursor: 'pointer'
-                  }}
-                  title="Retour au Nexus des Univers"
-                >
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '8px',
-                    border: '1px solid rgba(245, 158, 11, 0.4)',
-                    background: 'var(--surface-container-high)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.1)'
-                  }}>
-                    <Shield size={20} color="var(--gold)" />
-                  </div>
-                  {!isSidebarCollapsed && (
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{
-                        fontFamily: 'var(--font-title)',
-                        fontSize: '1.15rem',
-                        fontWeight: 700,
-                        letterSpacing: '-0.02em',
-                        color: 'var(--gold)',
-                        lineHeight: 1.1
-                      }}>
-                        Dramatis VTT
-                      </span>
-                      <span style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '0.68rem',
-                        color: 'var(--text-dim)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        marginTop: '2px'
-                      }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
-                        <span>Nexus des Mondes</span>
-                      </span>
-                    </div>
-                  )}
+              <div
+                onClick={() => setCurrentView('landing')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '11px',
+                  cursor: 'pointer',
+                  minWidth: 0
+                }}
+                title="Retour à la Bibliothèque d'Univers"
+              >
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(245, 158, 11, 0.45)',
+                  background: 'var(--surface-container-high)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.12)'
+                }}>
+                  <DramatisLogo size={24} />
                 </div>
-
                 {!isSidebarCollapsed && (
-                  <button
-                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                    style={{
-                      padding: '6px',
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      border: 'none',
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <span style={{
+                      fontFamily: 'var(--font-title)',
+                      fontSize: '1.12rem',
+                      fontWeight: 700,
+                      letterSpacing: '-0.02em',
+                      color: 'var(--gold)',
+                      lineHeight: 1.1
+                    }}>
+                      Dramatis
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.66rem',
                       color: 'var(--text-dim)',
-                      cursor: 'pointer'
-                    }}
-                    title="Replier la barre"
-                  >
-                    <Sliders size={14} />
-                  </button>
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      marginTop: '2px',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                      <span>Harnais JdR Agentique</span>
+                    </span>
+                  </div>
                 )}
               </div>
+
+              {!isSidebarCollapsed && (
+                <button
+                  onClick={() => setIsSidebarCollapsed(true)}
+                  style={{
+                    padding: '6px',
+                    borderRadius: '6px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-dim)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexShrink: 0
+                  }}
+                  title="Replier la barre latérale"
+                >
+                  <PanelLeftClose size={16} />
+                </button>
+              )}
             </div>
 
-            {/* Navigation Centrale (Stitch Tabs) */}
+            {/* Navigation Contextuelle (Global vs Univers Actif) */}
             <nav style={{
               flex: 1,
-              padding: '16px 10px',
+              padding: '14px 10px',
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
               gap: '4px'
             }}>
-              {!isSidebarCollapsed && (
-                <div style={{
-                  padding: '0 8px 8px 8px',
-                  fontSize: '0.68rem',
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-dim)',
-                  fontWeight: 600
-                }}>
-                  Navigation Centrale
-                </div>
-              )}
+              {currentView !== 'studio' ? (
+                <>
+                  {!isSidebarCollapsed && (
+                    <div style={{
+                      padding: '0 8px 6px 8px',
+                      fontSize: '0.66rem',
+                      fontFamily: 'var(--font-mono)',
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: 'var(--text-dim)',
+                      fontWeight: 600
+                    }}>
+                      Bibliothèque
+                    </div>
+                  )}
 
-              {/* Onglet 1: Univers (Fiche active) */}
-              <button
-                onClick={() => {
-                  setActiveStep('signal');
-                  setCurrentView('studio');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'signal' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Univers"
-              >
-                <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && <span>Univers</span>}
-              </button>
+                  {/* Mes Univers */}
+                  <button
+                    onClick={() => setCurrentView('landing')}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: currentView === 'landing' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: currentView === 'landing' ? '3px solid var(--gold)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: currentView === 'landing' ? 'var(--gold)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: currentView === 'landing' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Mes Univers"
+                  >
+                    <Library size={18} color={currentView === 'landing' ? 'var(--gold)' : 'var(--text-dim)'} />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Mes Univers</span>
+                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                          {theaters.length}
+                        </span>
+                      </div>
+                    )}
+                  </button>
 
-              {/* Onglet 2: L'Archiviste IA */}
-              <button
-                onClick={() => {
-                  setIsDrawerOpen(true);
-                  setActiveToolTab('archivist');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
-                  borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="L'Archiviste IA"
-              >
-                <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
-              </button>
+                  {/* Créer / Importer */}
+                  <button
+                    onClick={() => setIsWorkspaceModalOpen(true)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      borderLeft: '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Créer / Importer un univers"
+                  >
+                    <Plus size={18} color="var(--gold)" />
+                    {!isSidebarCollapsed && <span>Créer / Importer</span>}
+                  </button>
 
-              {/* Onglet 3: Tables Virtuelles */}
-              <button
-                onClick={() => {
-                  setActiveStep('stage');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'stage' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Tables Virtuelles"
-              >
-                <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && <span>Tables Virtuelles</span>}
-              </button>
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
 
-              {/* Onglet 4: Personnages (Roster Cloisonné) */}
-              <button
-                onClick={() => {
-                  setActiveStep('signal');
-                  // Défilement direct ou ouverture de la section Personnages
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  borderLeft: '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Personnages"
-              >
-                <Users size={18} color="var(--text-dim)" />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Personnages</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {signalSheet?.personae_count ?? 0}
-                    </span>
-                  </div>
-                )}
-              </button>
+                  {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
+                  <button
+                    onClick={openSettingsScreen}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: currentView === 'settings' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: currentView === 'settings' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: currentView === 'settings' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                      position: 'relative'
+                    }}
+                    title="Paramètres — Workflows, Agents & Évaluations"
+                  >
+                    <Settings size={18} color={currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-dim)'} />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Paramètres</span>
+                        {pendingApprovalsCount > 0 && (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            color: '#fbbf24',
+                            background: 'rgba(245, 158, 11, 0.18)',
+                            border: '1px solid rgba(245, 158, 11, 0.45)',
+                            padding: '1px 6px',
+                            borderRadius: '9999px'
+                          }}>
+                            {pendingApprovalsCount}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {isSidebarCollapsed && pendingApprovalsCount > 0 && (
+                      <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
+                    )}
+                  </button>
 
-              {/* Onglet 5: Sources & RAG */}
-              <button
-                onClick={() => {
-                  setActiveStep('sources');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'sources' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Documents Sources"
-              >
-                <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Sources & RAG</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {sourcesList.length}
-                    </span>
-                  </div>
-                )}
-              </button>
+                  {/* Accès Rapide aux Univers */}
+                  {!isSidebarCollapsed && (
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0 8px 8px 8px',
+                        fontSize: '0.66rem',
+                        fontFamily: 'var(--font-mono)',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-dim)',
+                        fontWeight: 600
+                      }}>
+                        <span>Accès Rapide ({theaters.length})</span>
+                      </div>
 
-              {/* Onglet 6: Codex Lore & Wiki */}
-              <button
-                onClick={() => {
-                  setActiveStep('wiki');
-                }}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
-                  borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: activeStep === 'wiki' ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Encyclopédie & Lore"
-              >
-                <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
-                {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <span>Codex Lore</span>
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
-                      {wikiNotes.length}
-                    </span>
-                  </div>
-                )}
-              </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
+                        {theaters.map((th) => {
+                          const isSelected = th === selectedTheater;
+                          return (
+                            <button
+                              key={th}
+                              onClick={() => {
+                                setSelectedTheater(th);
+                                setActiveStep('signal');
+                                setCurrentView('studio');
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '7px 10px',
+                                borderRadius: '6px',
+                                background: isSelected ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+                                border: isSelected ? '1px solid rgba(245, 158, 11, 0.28)' : '1px solid transparent',
+                                color: isSelected ? 'var(--text-main)' : 'var(--text-muted)',
+                                fontSize: '0.8rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                textAlign: 'left'
+                              }}
+                              title={`Ouvrir ${getDisplayName(th)}`}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: isSelected ? 'var(--gold)' : 'var(--text-dim)' }} />
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {getDisplayName(th)}
+                                </span>
+                              </div>
+                              {isSelected && (
+                                <span style={{ fontSize: '0.64rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', flexShrink: 0 }}>
+                                  Actif
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Retour vers la bibliothèque */}
+                  <button
+                    onClick={() => setCurrentView('landing')}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '10px',
+                      padding: isSidebarCollapsed ? '9px 0' : '8px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.82rem',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                    title="Retour à Tous les Univers"
+                  >
+                    <ArrowLeft size={15} color="var(--text-dim)" />
+                    {!isSidebarCollapsed && <span>Tous les Univers</span>}
+                  </button>
 
-              {/* Onglet 7: Paramètres & Agents */}
-              <button
-                onClick={() => setIsConfigModalOpen(true)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                  gap: '12px',
-                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                  borderRadius: '6px',
-                  background: 'transparent',
-                  borderLeft: '3px solid transparent',
-                  borderTop: 'none',
-                  borderRight: 'none',
-                  borderBottom: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.88rem',
-                  fontWeight: 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'all 0.15s ease'
-                }}
-                title="Paramètres"
-              >
-                <Settings size={18} color="var(--text-dim)" />
-                {!isSidebarCollapsed && <span>Paramètres</span>}
-              </button>
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
 
-              {/* Sélecteur d'Univers Rapide (Quick Switcher) */}
-              {!isSidebarCollapsed && (
-                <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0 8px 8px 8px',
-                    fontSize: '0.68rem',
-                    fontFamily: 'var(--font-mono)',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    color: 'var(--text-dim)',
-                    fontWeight: 600
-                  }}>
-                    <span>Univers Connectés ({theaters.length})</span>
-                    <button
-                      onClick={() => setIsWorkspaceModalOpen(true)}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--gold)', cursor: 'pointer', padding: 0 }}
-                      title="Créer un nouvel univers"
-                    >
-                      <Plus size={13} />
-                    </button>
-                  </div>
+                  {!isSidebarCollapsed && (
+                    <>
+                      <div style={{
+                        padding: '0 8px 6px 8px',
+                        fontSize: '0.66rem',
+                        fontFamily: 'var(--font-mono)',
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: 'var(--text-dim)',
+                        fontWeight: 600
+                      }}>
+                        Univers Actif
+                      </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '180px', overflowY: 'auto' }}>
-                    {theaters.map((th) => {
-                      const isSelected = th === selectedTheater;
-                      return (
-                        <div
-                          key={th}
-                          onClick={() => {
-                            setSelectedTheater(th);
+                      {/* Sélecteur rapide d'univers */}
+                      <div style={{ padding: '0 4px 10px 4px' }}>
+                        <select
+                          value={selectedTheater}
+                          onChange={(e) => {
+                            setSelectedTheater(e.target.value);
                             setActiveStep('signal');
+                            setCurrentView('studio');
                           }}
                           style={{
-                            padding: '6px 10px',
+                            width: '100%',
+                            padding: '7px 10px',
                             borderRadius: '6px',
-                            background: isSelected ? 'rgba(59, 130, 246, 0.12)' : 'transparent',
-                            border: isSelected ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent',
-                            color: isSelected ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                            background: 'var(--surface-container-high)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
+                            color: 'var(--gold)',
                             fontSize: '0.8rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
+                            fontWeight: 600,
+                            cursor: 'pointer'
                           }}
+                          title="Changer d'univers actif"
                         >
-                          <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: isSelected ? 'var(--cobalt-core)' : 'var(--text-dim)' }} />
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {getDisplayName(th)}
+                          {theaters.map((th) => (
+                            <option key={th} value={th} style={{ background: '#10141a', color: '#dfe2eb' }}>
+                              {getDisplayName(th)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Vue d'ensemble */}
+                  <button
+                    onClick={() => {
+                      setActiveStep('signal');
+                      setCurrentView('studio');
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: activeStep === 'signal' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Vue d'ensemble"
+                  >
+                    <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
+                    {!isSidebarCollapsed && <span>Vue d'ensemble</span>}
+                  </button>
+
+                  {/* Sources & Corpus */}
+                  <button
+                    onClick={() => {
+                      setActiveStep('sources');
+                      setCurrentView('studio');
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: activeStep === 'sources' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Sources & Corpus"
+                  >
+                    <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Sources & Corpus</span>
+                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
+                          {sourcesList.length}
+                        </span>
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Codex & Lore */}
+                  <button
+                    onClick={() => {
+                      setActiveStep('wiki');
+                      setCurrentView('studio');
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: activeStep === 'wiki' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Codex & Lore"
+                  >
+                    <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Codex & Lore</span>
+                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
+                          {wikiNotes.length}
+                        </span>
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Personnages */}
+                  <button
+                    onClick={() => {
+                      setActiveStep('signal');
+                      setCurrentView('studio');
+                      setTimeout(() => {
+                        document.getElementById('studio-personae-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 60);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      borderLeft: '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Personnages"
+                  >
+                    <Users size={18} color="var(--text-dim)" />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Personnages</span>
+                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
+                          {signalSheet?.personae_count ?? personae.length}
+                        </span>
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Table Virtuelle */}
+                  <button
+                    onClick={() => {
+                      setActiveStep('stage');
+                      setCurrentView('studio');
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
+                      borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: activeStep === 'stage' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Table Virtuelle"
+                  >
+                    <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
+                    {!isSidebarCollapsed && <span>Table Virtuelle</span>}
+                  </button>
+
+                  {/* L'Archiviste IA */}
+                  <button
+                    onClick={() => {
+                      setIsDrawerOpen(true);
+                      setActiveToolTab('archivist');
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
+                      borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="L'Archiviste IA"
+                  >
+                    <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                    {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
+                  </button>
+
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
+
+                  {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
+                  <button
+                    onClick={openSettingsScreen}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                      gap: '12px',
+                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      borderLeft: '3px solid transparent',
+                      borderTop: 'none',
+                      borderRight: 'none',
+                      borderBottom: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.88rem',
+                      fontWeight: 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                      position: 'relative'
+                    }}
+                    title="Paramètres — Workflows, Agents & Évaluations"
+                  >
+                    <Settings size={18} color="var(--text-dim)" />
+                    {!isSidebarCollapsed && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <span>Paramètres</span>
+                        {pendingApprovalsCount > 0 && (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontFamily: 'var(--font-mono)',
+                            fontWeight: 700,
+                            color: '#fbbf24',
+                            background: 'rgba(245, 158, 11, 0.18)',
+                            border: '1px solid rgba(245, 158, 11, 0.45)',
+                            padding: '1px 6px',
+                            borderRadius: '9999px'
+                          }}>
+                            {pendingApprovalsCount}
                           </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                        )}
+                      </div>
+                    )}
+                    {isSidebarCollapsed && pendingApprovalsCount > 0 && (
+                      <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
+                    )}
+                  </button>
+                </>
               )}
             </nav>
 
-            {/* Pied de Sidebar : Statut Système & MJ */}
+            {/* Pied de Sidebar minimal : Statut moteur local (sans doublon profil MJ) */}
             <div style={{
-              padding: isSidebarCollapsed ? '12px 6px' : '14px 16px',
+              padding: isSidebarCollapsed ? '12px 6px' : '12px 16px',
               borderTop: '1px solid rgba(255, 255, 255, 0.08)',
               background: 'rgba(0, 0, 0, 0.25)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: isSidebarCollapsed ? 'center' : 'space-between'
-            }}>
+            }}
+              title="Dramatis v2.1 — Moteur Local Strict"
+            >
               {!isSidebarCollapsed ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(245, 158, 11, 0.4)',
-                    background: 'var(--surface-container-high)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--gold)',
-                    fontWeight: 700,
-                    fontSize: '0.8rem'
-                  }}>
-                    MJ
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                      Maître de Jeu
-                    </span>
-                    <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                      <span>En ligne</span>
-                    </span>
-                  </div>
-                </div>
+                <>
+                  <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)' }} />
+                    <span>{signalSheet?.privacy_mode === 'strict_local' ? 'Local Strict' : 'Mode Hybride'}</span>
+                  </span>
+                  <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                    v2.1
+                  </span>
+                </>
               ) : (
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(245, 158, 11, 0.4)',
-                  background: 'var(--surface-container-high)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--gold)',
-                  fontWeight: 700,
-                  fontSize: '0.8rem'
-                }}>
-                  MJ
-                </div>
-              )}
-
-              {!isSidebarCollapsed && (
-                <button
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: '4px' }}
-                  title="Replier la barre"
-                >
-                  <ChevronUp size={14} style={{ transform: 'rotate(-90deg)' }} />
-                </button>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px rgba(16, 185, 129, 0.7)' }} />
               )}
             </div>
           </aside>
@@ -1462,7 +1673,7 @@ export default function App() {
                     }}
                     title="Déplier la barre latérale"
                   >
-                    <Sliders size={14} />
+                    <PanelLeftOpen size={15} />
                   </button>
                 )}
                 <div
@@ -1478,7 +1689,7 @@ export default function App() {
                     textTransform: 'uppercase',
                     letterSpacing: '0.06em'
                   }}
-                  title="Retour au Hub des Univers"
+                  title="Retour à la Bibliothèque d'Univers"
                 >
                   <DramatisLogo size={18} />
                   <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
@@ -1501,10 +1712,37 @@ export default function App() {
                       {theaters.length} Univers
                     </span>
                   </div>
+                ) : currentView === 'settings' ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem' }}>
+                      PARAMÈTRES
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.68rem',
+                      background: 'rgba(37, 99, 235, 0.18)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: 'var(--cobalt-light)',
+                      padding: '1px 7px',
+                      borderRadius: '4px'
+                    }}>
+                      WORKFLOWS & ÉVALUATIONS
+                    </span>
+                  </div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
-                      FICHE UNIVERS : {(signalSheet?.name || selectedTheater || 'Anastasius').toUpperCase()}
+                      {(signalSheet?.name || getDisplayName(selectedTheater)).toUpperCase()}
+                    </span>
+                    <span style={{ color: 'var(--border)' }}>/</span>
+                    <span style={{ color: 'var(--gold)', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', fontWeight: 600 }}>
+                      {activeStep === 'signal'
+                        ? "VUE D'ENSEMBLE"
+                        : activeStep === 'sources'
+                          ? 'SOURCES & CORPUS'
+                          : activeStep === 'wiki'
+                            ? 'CODEX & LORE'
+                            : 'TABLE VIRTUELLE'}
                     </span>
                     <span style={{
                       fontFamily: 'var(--font-mono)',
@@ -1515,7 +1753,7 @@ export default function App() {
                       padding: '1px 6px',
                       borderRadius: '4px'
                     }}>
-                      Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'ANA-709').toUpperCase()}
+                      Nexus {(selectedTheater ? selectedTheater.replace(/\.dramatis$/i, '') : 'CORE').toUpperCase()}
                     </span>
                   </div>
                 )}
@@ -1602,7 +1840,7 @@ export default function App() {
                       </button>
                     </div>
                   </>
-                ) : (
+                ) : currentView === 'studio' ? (
                   <>
                     {/* Stepper épuré */}
                     <div style={{
@@ -1698,7 +1936,7 @@ export default function App() {
                       <span>Outils & Archiviste</span>
                     </button>
                   </>
-                )}
+                ) : null}
 
                 {/* Contrôle du Son : Ambiance active */}
                 <button
@@ -1725,20 +1963,21 @@ export default function App() {
 
                 {/* Section Login / Préférences : Maître de Jeu */}
                 <button
-                  onClick={() => setIsConfigModalOpen(true)}
+                  onClick={openSettingsScreen}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '10px',
-                    paddingLeft: '12px',
+                    padding: '4px 10px 4px 12px',
+                    borderRadius: '8px',
                     borderLeft: '1px solid rgba(255, 255, 255, 0.1)',
-                    background: 'transparent',
-                    borderTop: 'none',
-                    borderRight: 'none',
-                    borderBottom: 'none',
+                    background: currentView === 'settings' ? 'rgba(59, 130, 246, 0.14)' : 'transparent',
+                    borderTop: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                    borderRight: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                    borderBottom: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
                     cursor: 'pointer'
                   }}
-                  title="Profil & Préférences"
+                  title="Profil & Paramètres — Workflows & Évaluations"
                 >
                   <div style={{
                     width: '34px',
@@ -1777,8 +2016,8 @@ export default function App() {
               </div>
             </header>
 
-            {/* Zone Principale : Hub des Univers ou Univers Actif */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: currentView === 'landing' ? '0' : '32px 36px', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            {/* Zone Principale : Bibliothèque d'Univers, Paramètres Workflows/Évals ou Univers Actif */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: currentView === 'settings' ? 'hidden' : 'auto', padding: currentView === 'studio' ? '32px 36px' : '0', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
               {currentView === 'landing' ? (
                 <>
 {/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
@@ -1852,7 +2091,7 @@ export default function App() {
                       background: 'rgba(28, 32, 38, 0.8)',
                       border: '1px solid rgba(83, 68, 52, 0.4)'
                     }}>
-                      {selectedTheater} • {sourcesList.length} Source(s) • {personae.length} Personnage(s)
+                      {selectedTheater} • {sourcesList.length} Source(s) • {signalSheet?.personae_count ?? personae.length} Personnage(s)
                     </span>
                   </div>
 
@@ -2412,6 +2651,19 @@ export default function App() {
           </div>
 
                 </>
+              ) : currentView === 'settings' ? (
+                <WorkflowStudioModal
+                  displayMode="page"
+                  isOpen={true}
+                  onClose={() => setCurrentView(previousView)}
+                  theaterId={selectedTheater}
+                  theaterName={getDisplayName(selectedTheater)}
+                  theaters={theaters.map((id) => ({ id, name: getDisplayName(id) }))}
+                  onSelectTheater={(th) => setSelectedTheater(th)}
+                  availableModels={availableLlmModels}
+                  onConfigSaved={() => loadTheaterAll(selectedTheater)}
+                  onPendingApprovalsChange={setPendingApprovalsCount}
+                />
               ) : (
                 <>
 
@@ -2469,7 +2721,7 @@ export default function App() {
                             color: 'var(--cobalt-light)'
                           }}>
                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                            <span>Cloisonnement Hermétique 100% • RAG Synchronisé</span>
+                            <span>Cloisonnement Hermétique 100% • Corpus Synchronisé</span>
                           </div>
                           <div style={{
                             display: 'flex',
@@ -2529,7 +2781,7 @@ export default function App() {
                           margin: '4px 0 0 0',
                           maxWidth: '920px'
                         }}>
-                          {signalSheet.agent_curator_summary || "Vaste univers cloisonné sous le harnais Dramatis. Moteur déterministe Rust, intégrité RAG LanceDB et isolement hermétique complet garantissant l'absence de fuite cross-monde."}
+                          {signalSheet.agent_curator_summary || "Vaste univers cloisonné sous le harnais Dramatis. Moteur déterministe Rust, intégrité documentaire LanceDB et isolement hermétique complet garantissant l'absence de fuite cross-monde."}
                         </p>
                       </div>
 
@@ -2668,7 +2920,7 @@ export default function App() {
                         </button>
 
                         <button
-                          onClick={() => setIsConfigModalOpen(true)}
+                          onClick={openSettingsScreen}
                           style={{
                             padding: '10px 16px',
                             borderRadius: '8px',
@@ -2754,12 +3006,12 @@ export default function App() {
                           </p>
                         </div>
 
-                        {/* Bloc Synchro RAG */}
+                        {/* Bloc Synchro Corpus */}
                         <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-core)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 700 }}>
                               <Activity size={13} />
-                              <span>Synchro RAG</span>
+                              <span>Synchro Corpus</span>
                             </div>
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--cobalt-light)', fontWeight: 700 }}>
                               14 ms
@@ -2824,7 +3076,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* PILIER 2 : DOCUMENTS SOURCES & RAG INDEXÉS (12 COLS) */}
+                    {/* PILIER 2 : DOCUMENTS SOURCES & CORPUS INDEXÉ (12 COLS) */}
                     <div style={{
                       gridColumn: 'span 12',
                       borderRadius: '12px',
@@ -2838,7 +3090,7 @@ export default function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
                           <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
-                            Pilier 2 : Documents Sources & RAG Indexés
+                            Pilier 2 : Documents Sources & Corpus Indexé
                           </h2>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -2914,7 +3166,7 @@ export default function App() {
                           ))
                         ) : (
                           <div style={{ gridColumn: '1 / -1', padding: '24px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
-                            Aucun document source déposé dans <code>00_sources/</code>. Déposez vos PDF ou fichiers Markdown pour alimenter le RAG de cet univers.
+                            Aucun document source déposé dans <code>00_sources/</code>. Déposez vos PDF ou fichiers Markdown pour alimenter la mémoire documentaire de cet univers.
                           </div>
                         )}
                       </div>
@@ -2951,7 +3203,7 @@ export default function App() {
                           </h2>
                         </div>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--cobalt-light)', fontWeight: 600 }}>
-                          Index RAG Actif ({sourcesList.length} sources)
+                          Index Documentaire Actif ({sourcesList.length} sources)
                         </span>
                       </div>
 
@@ -3095,7 +3347,7 @@ export default function App() {
                     </div>
 
                     {/* PILIER 4 : PERSONNAGES (ROSTER CLOISONNÉ) (12 COLS) */}
-                    <div style={{
+                    <div id="studio-personae-section" style={{
                       gridColumn: 'span 12',
                       borderRadius: '12px',
                       border: '1px solid var(--border)',
@@ -4558,19 +4810,7 @@ export default function App() {
           )}
 
           {/* =========================================================================
-          5. STUDIO AGENTIQUE & ORCHESTRATEUR DES 7 WORKFLOWS
-         ========================================================================= */}
-          <WorkflowStudioModal
-            isOpen={isConfigModalOpen}
-            onClose={() => setIsConfigModalOpen(false)}
-            theaterId={selectedTheater}
-            theaterName={getDisplayName(selectedTheater)}
-            availableModels={availableLlmModels}
-            onConfigSaved={() => loadTheaterAll(selectedTheater)}
-          />
-
-          {/* =========================================================================
-          6. PANNEAU "OUTILS" (AVEC OUTIL 1 : L'ARCHIVISTE STYLE NOTEBOOKLM)
+          5. PANNEAU "OUTILS" (AVEC OUTIL 1 : L'ARCHIVISTE)
          ========================================================================= */}
           {isDrawerOpen && (
             <aside style={{
@@ -4986,7 +5226,7 @@ export default function App() {
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
                             <span style={{ fontWeight: 700, color: msg.role === 'user' ? 'var(--gold)' : 'var(--amber)' }}>
-                              {msg.role === 'user' ? 'Vous' : "📜 L'Archiviste (RAG Canonique)"}
+                              {msg.role === 'user' ? 'Vous' : "📜 L'Archiviste (Corpus Canonique)"}
                             </span>
                             <span>{msg.timestamp}</span>
                           </div>
@@ -5668,7 +5908,7 @@ export default function App() {
                       </span>
                     ))
                   ) : (
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>RAG Hybride Tantivy + Knowledge Graph SQLite</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Index Hybride Tantivy + Graphe de Connaissances SQLite</span>
                   )}
                 </div>
               </div>
