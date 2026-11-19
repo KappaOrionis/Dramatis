@@ -15,10 +15,9 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-use dramatis_gateway::{
-    client::SouffleurClient,
-    types::{ChatMessage, ModelProfile},
-};
+mod orchestrator_routes;
+
+use dramatis_orchestrator::{OrchestratorEngine, WorkflowRequest};
 
 use dramatis_core::{
     acl::Role,
@@ -42,7 +41,7 @@ use dramatis_machina::{
     RhaiSandbox, ShadowrunPoolResult, SystemSchema, TacticalEdgeEngine,
 };
 use dramatis_rag::{
-    ArchivistAgent, ArchivistVerdict, AutoWikilinker, CampaignChronicler, Citation,
+    ArchivistVerdict, AutoWikilinker, CampaignChronicler,
     EntityResolutionResult, EntityResolver, HybridSearchEngine, HybridSearchResult,
     MysteriesBoard, NonDestructiveWikiPatcher, SessionDebrief,
 };
@@ -1051,395 +1050,26 @@ async fn archivist_query_handler(
     Json(payload): Json<ArchivistQueryRequest>,
 ) -> Result<Json<ArchivistVerdict>, StatusCode> {
     let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
-    let index_dir = theater_path.join("04_index");
-    let engine = HybridSearchEngine::open_or_create(&index_dir, &theater_path)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut citations: Vec<Citation> = Vec::new();
-    let mut matched_excerpts: Vec<String> = Vec::new();
-
-    // 1. Hybrid search (Tantivy + Knowledge Graph + RRF)
-    if let Ok(hits) = engine.search_hybrid(&payload.query, None, 6) {
-        for h in hits {
-            if let Some(allowed) = &payload.selected_sources {
-                if !allowed.is_empty() {
-                    let allowed_match = allowed.iter().any(|src| {
-                        h.source_path.contains(src) || src.contains(&h.source_path)
-                    });
-                    if !allowed_match {
-                        continue;
-                    }
-                }
-            }
-            citations.push(Citation::new(&h.source_path, h.page, &h.excerpt));
-            matched_excerpts.push(h.excerpt);
-        }
-    }
-
-    // 2. Direct paragraph & section scan across 00_sources/ and 01_wiki/ for NotebookLM-style precision
-    let raw_terms: Vec<String> = payload
-        .query
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.len() >= 3)
-        .map(|s| s.to_string())
-        .collect();
-
-    let mut query_terms = raw_terms.clone();
-    // Bilingual French -> English query expansions for RPG corpus
-    for term in &raw_terms {
-        match term.as_str() {
-            "regles" | "règles" | "regle" | "règle" => {
-                query_terms.push("rule".to_string());
-                query_terms.push("rules".to_string());
-                query_terms.push("mechanic".to_string());
-            }
-            "cadre" | "univers" | "monde" => {
-                query_terms.push("setting".to_string());
-                query_terms.push("mythic".to_string());
-                query_terms.push("europe".to_string());
-                query_terms.push("background".to_string());
-            }
-            "maison" | "maisons" => {
-                query_terms.push("house".to_string());
-                query_terms.push("houses".to_string());
-                query_terms.push("lineage".to_string());
-            }
-            "mage" | "mages" | "magicien" | "magiciens" => {
-                query_terms.push("magus".to_string());
-                query_terms.push("magi".to_string());
-                query_terms.push("wizard".to_string());
-            }
-            "liste" | "exhaustif" | "officielle" | "officiel" => {
-                query_terms.push("contents".to_string());
-                query_terms.push("chapter".to_string());
-                query_terms.push("magi".to_string());
-            }
-            _ => {}
-        }
-    }
-
-    // Specific bonus for query intent (e.g., "maisons", "houses", combat)
-    let has_maisons_query = payload.query.to_lowercase().contains("maison")
-        || payload.query.to_lowercase().contains("house")
-        || payload.query.to_lowercase().contains("hermes");
-    let has_combat_query = payload.query.to_lowercase().contains("combat")
-        || payload.query.to_lowercase().contains("guerre")
-        || payload.query.to_lowercase().contains("bataille")
-        || payload.query.to_lowercase().contains("martial")
-        || payload.query.to_lowercase().contains("combattant");
-
-    // Clear citations and matched_excerpts from whole-document initial hit
-    citations.clear();
-    matched_excerpts.clear();
-
-    if !query_terms.is_empty() {
-        let mut candidate_snippets: Vec<(usize, String, Option<usize>, String)> = Vec::new();
-
-        // Scan 00_sources/
-        let sources_dir = theater_path.join("00_sources");
-        if let Ok(entries) = std::fs::read_dir(&sources_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                let file_name = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                let rel_path = format!("00_sources/{}", file_name);
-
-                if let Some(allowed) = &payload.selected_sources {
-                    if !allowed.is_empty()
-                        && !allowed.iter().any(|s| s == &file_name || s == &rel_path)
-                    {
-                        continue;
-                    }
-                }
-
-                let ext = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                let file_content = if matches!(ext.as_str(), "md" | "txt" | "json" | "yaml" | "yml") {
-                    std::fs::read_to_string(&path).ok()
-                } else if ext == "pdf" {
-                    dramatis_ingest::PdfDocParser::extract_text(&path).ok()
-                } else {
-                    None
-                };
-
-                if let Some(content) = file_content {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let mut current_chunk_lines: Vec<String> = Vec::new();
-                    let mut chunk_start_line = 1;
-
-                        for (line_idx, line) in lines.iter().enumerate() {
-                            let trimmed = line.trim();
-                            if trimmed.is_empty() {
-                                if !current_chunk_lines.is_empty() {
-                                    let chunk_text = current_chunk_lines.join("\n");
-                                    let clean = chunk_text.trim();
-                                    if clean.len() >= 20 {
-                                        let lower = clean.to_lowercase();
-                                        let mut score = query_terms
-                                            .iter()
-                                            .filter(|term| lower.contains(term.as_str()))
-                                            .count();
-
-                                        if has_maisons_query {
-                                            if lower.contains("twelve houses") || lower.contains("houses of hermes") || lower.contains("douze maisons") {
-                                                score += 15;
-                                            }
-                                            if lower.contains("bjornaer") || lower.contains("bonisagus") || lower.contains("flambeau") {
-                                                score += 10;
-                                            }
-                                        }
-
-                                        if has_combat_query {
-                                            if lower.contains("flambeau") && (lower.contains("combat") || lower.contains("martial") || lower.contains("fire") || lower.contains("knights")) {
-                                                score += 40;
-                                            }
-                                            if lower.contains("tremere") && (lower.contains("combat magic") || lower.contains("field commander") || lower.contains("certamen")) {
-                                                score += 30;
-                                            }
-                                            if lower.contains("combat") || lower.contains("martial") {
-                                                score += 10;
-                                            }
-                                        }
-
-                                        if lower.contains("open license markdown version")
-                                            || lower.contains("crowdfunding backers")
-                                            || lower.contains("definitive edition the extensively revised")
-                                        {
-                                            score = 0;
-                                        }
-
-                                        if score > 0 {
-                                            let snippet: String = clean.chars().take(1200).collect();
-                                            candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
-                                        }
-                                    }
-                                    current_chunk_lines.clear();
-                                }
-                                chunk_start_line = line_idx + 2;
-                            } else {
-                                if current_chunk_lines.is_empty() {
-                                    chunk_start_line = line_idx + 1;
-                                }
-                                current_chunk_lines.push(line.to_string());
-                            }
-                        }
-
-                        // Process last chunk if remaining
-                        if !current_chunk_lines.is_empty() {
-                            let chunk_text = current_chunk_lines.join("\n");
-                            let clean = chunk_text.trim();
-                            if clean.len() >= 20 {
-                                let lower = clean.to_lowercase();
-                                let score = query_terms
-                                    .iter()
-                                    .filter(|term| lower.contains(term.as_str()))
-                                    .count();
-                                if score > 0 {
-                                    let snippet: String = clean.chars().take(1200).collect();
-                                    candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-        // Scan 01_wiki/ if no strict source filter or if wiki is included
-        let wiki_dir = theater_path.join("01_wiki");
-        if let Ok(cats) = std::fs::read_dir(&wiki_dir) {
-            for cat in cats.flatten() {
-                if cat.path().is_dir() {
-                    let cat_name = cat.file_name().to_string_lossy().to_string();
-                    if let Ok(files) = std::fs::read_dir(cat.path()) {
-                        for f in files.flatten() {
-                            let p = f.path();
-                            if p.extension().and_then(|e| e.to_str()) == Some("md") {
-                                let fname = p
-                                    .file_name()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let rel_path = format!("01_wiki/{}/{}", cat_name, fname);
-                                if let Some(allowed) = &payload.selected_sources {
-                                    if !allowed.is_empty()
-                                        && !allowed.iter().any(|s| s == &fname || s == &rel_path)
-                                    {
-                                        continue;
-                                    }
-                                }
-                                if let Ok(content) = std::fs::read_to_string(&p) {
-                                    let lines: Vec<&str> = content.lines().collect();
-                                    let mut current_chunk_lines: Vec<String> = Vec::new();
-                                    let mut chunk_start_line = 1;
-
-                                    for (line_idx, line) in lines.iter().enumerate() {
-                                        let trimmed = line.trim();
-                                        if trimmed.is_empty() {
-                                            if !current_chunk_lines.is_empty() {
-                                                let chunk_text = current_chunk_lines.join("\n");
-                                                let clean = chunk_text.trim();
-                                                if clean.len() >= 15 && !clean.starts_with("---") {
-                                                    let lower = clean.to_lowercase();
-                                                    let score = query_terms
-                                                        .iter()
-                                                        .filter(|term| lower.contains(term.as_str()))
-                                                        .count();
-                                                    if score > 0 {
-                                                        let snippet: String = clean.chars().take(1200).collect();
-                                                        candidate_snippets.push((score, rel_path.clone(), Some(chunk_start_line), snippet));
-                                                    }
-                                                }
-                                                current_chunk_lines.clear();
-                                            }
-                                            chunk_start_line = line_idx + 2;
-                                        } else {
-                                            if current_chunk_lines.is_empty() {
-                                                chunk_start_line = line_idx + 1;
-                                            }
-                                            current_chunk_lines.push(line.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        candidate_snippets.sort_by(|a, b| b.0.cmp(&a.0));
-        for (_, rel_path, line_no, snippet) in candidate_snippets.into_iter().take(4) {
-            if !citations
-                .iter()
-                .any(|c| c.source_file == rel_path && c.snippet == snippet)
-            {
-                citations.push(Citation::with_line(&rel_path, Some(1), line_no, &snippet));
-                matched_excerpts.push(snippet);
-            }
-        }
-    }
-
-    citations.truncate(4);
-    matched_excerpts.truncate(3);
-
-    // 3. NotebookLM Synthesis: If local LLM (Souffleur / LM Studio) is reachable, synthesize a fluent answer based on excerpts
-    let mut model_used: Option<String> = None;
-    let mut prompt_used: Option<String> = None;
-    let mut tools_used: Option<Vec<String>> = Some(vec![
-        "Tantivy BM25 Full-text Search".to_string(),
-        "Knowledge Graph RRF".to_string(),
-        "Section Scanner with Line-accurate Indexing".to_string(),
-    ]);
-
-    let synthesized_answer = if !matched_excerpts.is_empty() {
-        let client = SouffleurClient::new(true);
-
-        // Fetch active/available models from LM Studio
-        let available_models: Vec<String> = if let Ok(resp) = reqwest::get("http://127.0.0.1:1234/v1/models").await {
-            if let Ok(v) = resp.json::<serde_json::Value>().await {
-                v["data"]
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
-
-        // Determine chosen model: payload preference > active non-embedding model > fallback
-        let chosen_model = if let Some(pref) = &payload.preferred_model {
-            if !pref.trim().is_empty() {
-                pref.clone()
-            } else {
-                available_models
-                    .iter()
-                    .find(|m| !m.contains("embed"))
-                    .cloned()
-                    .unwrap_or_else(|| "mistral-small-3.2-24b-instruct-2506".to_string())
-            }
-        } else {
-            available_models
-                .iter()
-                .find(|m| !m.contains("embed"))
-                .cloned()
-                .unwrap_or_else(|| "mistral-small-3.2-24b-instruct-2506".to_string())
-        };
-
-        model_used = Some(chosen_model.clone());
-
-        let profile = ModelProfile {
-            model_name: chosen_model,
-            base_url: "http://127.0.0.1:1234/v1".to_string(),
-            api_key: None,
-            max_tokens: 380,
-            context_window: 4096,
-            temperature: 0.2,
-            is_local: true,
-        };
-
-        let context_block = matched_excerpts.join("\n\n---\n\n");
-        let system_prompt = "Tu es L'Archiviste, l'agent documentaliste et archiviste canonique de Dramatis (harnais de jeu de rôle). Tu réponds OBLIGATOIREMENT et STRICTEMENT dans la langue de la question posée par l'utilisateur (si la question est en français, rédige ta réponse EXCLUSIVEMENT en français). Appuie-toi sur les extraits des sources fournis ci-dessous pour formuler une réponse claire, directe et sourcée. Ne reproduis pas passivement le texte en anglais : analyse, synthétise et réponds directement en français.";
-        let user_prompt = format!(
-            "Extraits des sources canoniques du jeu :\n\"\"\"\n{}\n\"\"\"\n\nQuestion de l'utilisateur : {}\n\nRéponds précisément et directement à la question en français en t'appuyant sur ces sources :",
-            context_block, payload.query
-        );
-
-        let full_prompt_preview = format!(
-            "[SYSTEM PROMPT]\n{}\n\n[USER PROMPT]\n{}",
-            system_prompt, user_prompt
-        );
-        prompt_used = Some(full_prompt_preview);
-
-        if let Some(tools) = &mut tools_used {
-            tools.push("LLM Synthesizer (Local OpenAI-compatible API)".to_string());
-        }
-
-        let messages = vec![
-            ChatMessage {
-                role: "system".to_string(),
-                content: system_prompt.to_string(),
-                name: None,
-            },
-            ChatMessage {
-                role: "user".to_string(),
-                content: user_prompt,
-                name: None,
-            },
-        ];
-
-        match client.complete_chat(&profile, &messages, None).await {
-            Ok(content) if !content.trim().is_empty() => Some(content.trim().to_string()),
-            _ => Some(matched_excerpts.join("\n\n---\n\n")),
-        }
-    } else {
-        None
+    let req = WorkflowRequest {
+        theater_id: id,
+        theater_root: theater_path,
+        workflow_id: "WF-01".to_string(),
+        input: serde_json::json!({
+            "query": payload.query,
+            "selected_sources": payload.selected_sources,
+            "preferred_model": payload.preferred_model,
+        }),
+        dry_run: true,
+        role: Role::Gm,
+        runtime_override: None,
     };
 
-    let mut verdict = ArchivistAgent::answer_query(
-        &payload.query,
-        citations,
-        synthesized_answer.as_deref(),
-    );
-    verdict.model_used = model_used;
-    verdict.prompt_used = prompt_used;
-    verdict.tools_used = tools_used;
+    let exec = OrchestratorEngine::execute(req)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    let verdict: ArchivistVerdict =
+        serde_json::from_value(exec.output).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(verdict))
 }
 
@@ -1907,6 +1537,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/stage/resolve", post(stage_resolve_intention_handler))
         .route("/api/theaters/{id}/stage/logs", get(list_session_logs_handler))
         .route("/api/theaters/{id}/stage/rewind", post(rewind_stage_handler))
+        .merge(orchestrator_routes::router())
         .fallback(static_handler)
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50 MB max upload
         .layer(CorsLayer::permissive())
@@ -2049,7 +1680,7 @@ async fn list_theaters_handler(
             }
         }
     }
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by_key(|a| a.name.to_lowercase());
 
     Ok(Json(list))
 }
