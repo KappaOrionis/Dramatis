@@ -56,10 +56,10 @@
   --red: #ffb4ab;
   --red-container: #93000a;
   
-  /* Niveaux de texte */
-  --text-main: #dfe2eb;
-  --text-muted: #d8c3ad;
-  --text-dim: #8b949e;
+  /* Niveaux de texte (Contraste WCAG AA/AAA sur fond sombre) */
+  --text-main: #f1f5f9;
+  --text-muted: #cbd5e1;
+  --text-dim: #94a3b8;
 
   /* Typographies officielles DESIGN.md Stitch */
   --font-display: 'Sora', sans-serif;
@@ -96,6 +96,11 @@ button {
 
 button:hover {
   filter: brightness(1.12);
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--cobalt-400);
+  outline-offset: 2px;
 }
 
 input, textarea, select {

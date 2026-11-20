@@ -293,6 +293,10 @@ const WORKFLOW_EXAMPLES: Record<string, any> = {
     ],
     prompt: 'Décris ta réaction en une réplique.',
   },
+  'WF-08': {
+    file_name: 'extrait_regles.md',
+    content_text: '# Règles de Combat\n\n## Initiative\nJet de Réflexes + 1d10.',
+  },
 };
 
 const GATE_LABELS: Record<GateId, string> = {
@@ -2151,6 +2155,7 @@ export const WorkflowStudioModal: React.FC<WorkflowStudioModalProps> = ({
                       <option value="WF-05">WF-05 — Le Dramaturge</option>
                       <option value="WF-06">WF-06 — Le Metteur en Scène</option>
                       <option value="WF-07">WF-07 — L’Acteur Bot</option>
+                      <option value="WF-08">WF-08 — L’Ingesteur Multi-Format</option>
                     </select>
 
                     <select

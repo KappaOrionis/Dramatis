@@ -5,6 +5,7 @@ pub mod wf04_steward;
 pub mod wf05_playwright;
 pub mod wf06_director;
 pub mod wf07_actor;
+pub mod wf08_ingester;
 
 use std::path::PathBuf;
 use dramatis_core::{CreationValidationResult, Role, TheaterManifest};

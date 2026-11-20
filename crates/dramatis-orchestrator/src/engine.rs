@@ -14,7 +14,7 @@ use crate::trace::{
 use crate::validation::{MutationProposal, ValidationContext, ValidationPipeline};
 use crate::workflows::{
     wf01_archivist, wf02_scribe, wf03_arbiter, wf04_steward, wf05_playwright, wf06_director,
-    wf07_actor, WorkflowOutcome, WorkflowRuntimeInput,
+    wf07_actor, wf08_ingester, WorkflowOutcome, WorkflowRuntimeInput,
 };
 
 /// Invocation request sent to `OrchestratorEngine::execute`.
@@ -303,6 +303,7 @@ impl OrchestratorEngine {
             AgentId::Playwright => wf05_playwright::run(runtime_in).await,
             AgentId::Director => wf06_director::run(runtime_in).await,
             AgentId::Actor => wf07_actor::run(runtime_in).await,
+            AgentId::Ingester => wf08_ingester::run(runtime_in).await,
         }
     }
 

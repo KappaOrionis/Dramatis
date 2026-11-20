@@ -90,14 +90,18 @@ impl EvalRunner {
     /// Lists the built-in canonical suite plus any custom `00_config/evals/*.yaml` files.
     pub fn list_suites(theater_root: &Path) -> Vec<EvalSuiteSummary> {
         let mut suites = Vec::new();
-        let builtin = Self::default_canonical_eval_suite();
-        suites.push(EvalSuiteSummary {
-            suite_id: builtin.suite_id.clone(),
-            name: builtin.name.clone(),
-            description: builtin.description.clone(),
-            is_builtin: true,
-            cases_count: builtin.cases.len(),
-        });
+        for builtin in [
+            Self::default_canonical_eval_suite(),
+            Self::ingest_canonical_eval_suite(),
+        ] {
+            suites.push(EvalSuiteSummary {
+                suite_id: builtin.suite_id.clone(),
+                name: builtin.name.clone(),
+                description: builtin.description.clone(),
+                is_builtin: true,
+                cases_count: builtin.cases.len(),
+            });
+        }
 
         let evals_dir = ConfigRegistry::evals_dir(theater_root);
         if let Ok(entries) = std::fs::read_dir(evals_dir) {
@@ -126,6 +130,10 @@ impl EvalRunner {
         let builtin = Self::default_canonical_eval_suite();
         if suite_id == builtin.suite_id || suite_id.trim().is_empty() {
             return Ok(builtin);
+        }
+        let ingest_builtin = Self::ingest_canonical_eval_suite();
+        if suite_id == ingest_builtin.suite_id {
+            return Ok(ingest_builtin);
         }
 
         let evals_dir = ConfigRegistry::evals_dir(theater_root);
@@ -277,6 +285,84 @@ impl EvalRunner {
         }
 
         failures
+    }
+
+    /// Built-in multi-format document ingestion benchmark suite (`WF-08`).
+    pub fn ingest_canonical_eval_suite() -> EvalSuite {
+        EvalSuite {
+            suite_id: "ingest_canonical".to_string(),
+            name: "Benchmark Ingestion Multi-Format (WF-08)".to_string(),
+            description: "Valide le routage, le hachage SHA-256 et l'extraction déterministe pour Markdown, PDF, Excel (.xlsx) et Médias.".to_string(),
+            is_builtin: true,
+            cases: vec![
+                EvalCase {
+                    id: "eval_wf08_markdown".to_string(),
+                    name: "WF-08 Ingesteur — Document Markdown avec tableaux".to_string(),
+                    workflow_id: "WF-08".to_string(),
+                    role: Role::Gm,
+                    input: json!({
+                        "file_name": "codex_test.md",
+                        "content_text": "# Ordre d'Hermès\n\n## Maisons\n| Maison | Spécialité |\n| --- | --- |\n| Flambeau | Ignem |\n"
+                    }),
+                    assertions: EvalAssertions {
+                        expect_overall_pass: Some(true),
+                        expect_gates_passed: vec![GateId::G1Contract, GateId::G2Epistemic, GateId::G3Machina],
+                        expect_documentary_silence: None,
+                        output_contains: vec!["\"detected_format\":\"markdown\"".to_string()],
+                        output_not_contains: vec![],
+                    },
+                },
+                EvalCase {
+                    id: "eval_wf08_pdf".to_string(),
+                    name: "WF-08 Ingesteur — Manuel PDF".to_string(),
+                    workflow_id: "WF-08".to_string(),
+                    role: Role::Gm,
+                    input: json!({
+                        "file_name": "manuel_regles.pdf",
+                        "content_text": "# Chapitre 1\nRègles de base de la magie hermétique."
+                    }),
+                    assertions: EvalAssertions {
+                        expect_overall_pass: Some(true),
+                        expect_gates_passed: vec![GateId::G1Contract, GateId::G2Epistemic, GateId::G3Machina],
+                        expect_documentary_silence: None,
+                        output_contains: vec!["\"detected_format\":\"pdf\"".to_string()],
+                        output_not_contains: vec![],
+                    },
+                },
+                EvalCase {
+                    id: "eval_wf08_excel".to_string(),
+                    name: "WF-08 Ingesteur — Tableur Excel (.xlsx) & transpilation Rhai".to_string(),
+                    workflow_id: "WF-08".to_string(),
+                    role: Role::Gm,
+                    input: json!({
+                        "file_name": "tables_rencontres.xlsx"
+                    }),
+                    assertions: EvalAssertions {
+                        expect_overall_pass: Some(true),
+                        expect_gates_passed: vec![GateId::G1Contract, GateId::G2Epistemic, GateId::G3Machina],
+                        expect_documentary_silence: None,
+                        output_contains: vec!["\"detected_format\":\"excel\"".to_string()],
+                        output_not_contains: vec![],
+                    },
+                },
+                EvalCase {
+                    id: "eval_wf08_media".to_string(),
+                    name: "WF-08 Ingesteur — Ressource Média (Image / Audio)".to_string(),
+                    workflow_id: "WF-08".to_string(),
+                    role: Role::Gm,
+                    input: json!({
+                        "file_name": "carte_alliance.webp"
+                    }),
+                    assertions: EvalAssertions {
+                        expect_overall_pass: Some(true),
+                        expect_gates_passed: vec![GateId::G1Contract, GateId::G2Epistemic, GateId::G3Machina],
+                        expect_documentary_silence: None,
+                        output_contains: vec!["\"detected_format\":\"image\"".to_string()],
+                        output_not_contains: vec![],
+                    },
+                },
+            ],
+        }
     }
 
     /// Built-in 7-workflow canonical regression suite runnable in Dry-Run on any Theater.

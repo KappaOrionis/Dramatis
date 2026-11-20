@@ -25,6 +25,8 @@ pub enum AgentId {
     Director,
     #[serde(rename = "dramatis.actor")]
     Actor,
+    #[serde(rename = "dramatis.ingester")]
+    Ingester,
 }
 
 impl AgentId {
@@ -38,6 +40,7 @@ impl AgentId {
             AgentId::Playwright => "dramatis.playwright",
             AgentId::Director => "dramatis.director",
             AgentId::Actor => "dramatis.actor",
+            AgentId::Ingester => "dramatis.ingester",
         }
     }
 
@@ -51,10 +54,11 @@ impl AgentId {
             AgentId::Playwright => "playwright",
             AgentId::Director => "director",
             AgentId::Actor => "actor",
+            AgentId::Ingester => "ingester",
         }
     }
 
-    /// Returns the corresponding workflow code (`WF-01`..`WF-07`).
+    /// Returns the corresponding workflow code (`WF-01`..`WF-08`).
     pub fn workflow_id(&self) -> &'static str {
         match self {
             AgentId::Archivist => "WF-01",
@@ -64,11 +68,12 @@ impl AgentId {
             AgentId::Playwright => "WF-05",
             AgentId::Director => "WF-06",
             AgentId::Actor => "WF-07",
+            AgentId::Ingester => "WF-08",
         }
     }
 
-    /// Lists all 7 harness agents in canonical workflow order.
-    pub fn all() -> [AgentId; 7] {
+    /// Lists all 8 harness agents in canonical workflow order.
+    pub fn all() -> [AgentId; 8] {
         [
             AgentId::Archivist,
             AgentId::Scribe,
@@ -77,6 +82,7 @@ impl AgentId {
             AgentId::Playwright,
             AgentId::Director,
             AgentId::Actor,
+            AgentId::Ingester,
         ]
     }
 
@@ -91,6 +97,7 @@ impl AgentId {
             "dramatis.playwright" | "playwright" | "wf-05" | "wf05" => Ok(AgentId::Playwright),
             "dramatis.director" | "director" | "wf-06" | "wf06" => Ok(AgentId::Director),
             "dramatis.actor" | "actor" | "wf-07" | "wf07" => Ok(AgentId::Actor),
+            "dramatis.ingester" | "ingester" | "wf-08" | "wf08" => Ok(AgentId::Ingester),
             _ => Err(OrchestratorError::UnknownAgent(raw.to_string())),
         }
     }
@@ -1180,6 +1187,55 @@ impl ConfigRegistry {
                     workflow_params: params,
                 }
             }
+            AgentId::Ingester => {
+                let mut params = serde_json::Map::new();
+                params.insert("max_chunk_chars".to_string(), json!(1200));
+                params.insert("enable_sha256_dedup".to_string(), json!(true));
+                params.insert("auto_transpile_excel_rhai".to_string(), json!(true));
+
+                AgentConfig {
+                    id: agent.as_str().to_string(),
+                    workflow_id: agent.workflow_id().to_string(),
+                    display_name: "L'Ingesteur".to_string(),
+                    pole: "Régie".to_string(),
+                    role_description: "Pipeline déterministe d'ingestion multi-format (PDF, Markdown, Excel, Médias)".to_string(),
+                    write_scope: "/00_sources & /04_index".to_string(),
+                    version: "2.1".to_string(),
+                    enabled: true,
+                    model: ModelConfig {
+                        temperature: 0.0,
+                        max_tokens: 512,
+                        structured_output: StructuredOutputConfig {
+                            mode: StructuredOutputMode::JsonSchema,
+                            schema_ref: Some("schemas/ingest_report.v1.json".to_string()),
+                        },
+                        ..ModelConfig::default()
+                    },
+                    prompts: PromptsConfig {
+                        system_template: "Tu es L'Ingesteur déterministe de {{theater_name}}. Tu extrais et indexes chaque type de document sans altérer les sources originales.".to_string(),
+                        language_policy: LanguagePolicy::ForceFr,
+                        custom_instructions: String::new(),
+                    },
+                    tools: ToolsConfig {
+                        allowed: vec![
+                            "ingest.pdf".to_string(),
+                            "ingest.markdown".to_string(),
+                            "ingest.excel".to_string(),
+                            "ingest.media".to_string(),
+                            "ingest.sha256".to_string(),
+                        ],
+                        denied: vec!["core.gm_secrets".to_string()],
+                    },
+                    guardrails: GuardrailsConfig {
+                        privacy_mode: PrivacyOverride::StrictLocal,
+                        max_tool_calls: 4,
+                        timeout_ms: 30_000,
+                        validation_profile: ValidationProfile::StrictCanon,
+                        hitl_mode: HitlMode::Auto,
+                    },
+                    workflow_params: params,
+                }
+            }
         }
     }
 
@@ -1297,6 +1353,21 @@ impl ConfigRegistry {
                     step("episodic_recall", "Lecture mémoire & fiche personnage"),
                     step("in_character_reaction", "Génération réplique & intention"),
                     step("handoff_to_arbiter", "Routage vers WF-03 si intention mécanique"),
+                ],
+                hitl_mode: Some(HitlMode::Auto),
+                max_retries: 1,
+            },
+            AgentId::Ingester => WorkflowConfig {
+                workflow_id: "WF-08".to_string(),
+                agent_id: agent.as_str().to_string(),
+                name: "Ingestion & Indexation Multi-Format".to_string(),
+                description: "Routage par type de document (.pdf, .md/.txt, .xlsx, images/audio), déduplication SHA-256 et extraction déterministe.".to_string(),
+                enabled: true,
+                steps: vec![
+                    step("format_detection", "Détection du format & routage"),
+                    step("sha256_dedup", "Contrôle d'empreinte SHA-256"),
+                    step("typed_extraction", "Extraction & découpage spécialisé"),
+                    step("index_registration", "Enregistrement dans l'index du Théâtre"),
                 ],
                 hitl_mode: Some(HitlMode::Auto),
                 max_retries: 1,
