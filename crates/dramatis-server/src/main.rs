@@ -2081,7 +2081,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .merge(orchestrator_routes::router())
         .fallback(static_handler)
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50 MB max upload
+        .layer(DefaultBodyLimit::max(512 * 1024 * 1024)) // 512 MB max upload (supports large RPG PDFs in base64)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);

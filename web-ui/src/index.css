@@ -127,3 +127,75 @@ input, textarea, select {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(212, 175, 55, 0.3);
 }
+
+/* Branded Customizable Select (Dramatis Dark Matter & Forged Gold) */
+.dramatis-select,
+.dramatis-select::picker(select) {
+  appearance: base-select;
+}
+
+.dramatis-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--surface-container-high);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--gold);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dramatis-select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.dramatis-select::picker-icon {
+  color: var(--gold);
+  transition: transform 0.15s ease;
+}
+
+.dramatis-select:open::picker-icon {
+  transform: rotate(180deg);
+}
+
+.dramatis-select::picker(select) {
+  background: #10141a;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 8px;
+  padding: 4px;
+  margin-block-start: 4px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.75);
+}
+
+.dramatis-select option {
+  padding: 7px 10px;
+  border-radius: 5px;
+  background: transparent;
+  color: #dfe2eb;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dramatis-select option:hover,
+.dramatis-select option:focus {
+  background: rgba(245, 158, 11, 0.14);
+  color: #f8fafc;
+}
+
+.dramatis-select option:checked {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.dramatis-select option::checkmark {
+  color: var(--gold);
+}

@@ -225,6 +225,14 @@ export default function App() {
   const [newSourceContent, setNewSourceContent] = useState('');
   const [isDraggingSource, setIsDraggingSource] = useState(false);
   const [isUploadingSource, setIsUploadingSource] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    currentFileName: string;
+    phase: 'reading' | 'uploading' | 'indexing';
+    percent: number | null;
+  } | null>(null);
+  const [uploadElapsedSec, setUploadElapsedSec] = useState(0);
   const [sourceUploadFeedback, setSourceUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -308,6 +316,17 @@ export default function App() {
       loadTheaterAll(selectedTheater);
     }
   }, [selectedTheater]);
+
+  useEffect(() => {
+    if (!isUploadingSource) {
+      setUploadElapsedSec(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setUploadElapsedSec((s) => s + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isUploadingSource]);
 
   // Fermer le menu popover NotebookLM au clic externe
   useEffect(() => {
@@ -476,7 +495,10 @@ export default function App() {
     }
   };
 
-  const uploadSingleFile = async (file: File): Promise<boolean> => {
+  const uploadSingleFile = async (
+    file: File,
+    onPhase?: (phase: 'reading' | 'uploading' | 'indexing', percent: number | null) => void
+  ): Promise<boolean> => {
     return new Promise((resolve) => {
       const isBinary = file.name.toLowerCase().endsWith('.pdf') ||
         file.name.toLowerCase().endsWith('.png') ||
@@ -484,7 +506,8 @@ export default function App() {
         file.name.toLowerCase().endsWith('.webp');
 
       const reader = new FileReader();
-      reader.onload = async (event) => {
+      onPhase?.('reading', null);
+      reader.onload = (event) => {
         try {
           let payloadContent: string;
           let isBase64 = false;
@@ -497,11 +520,12 @@ export default function App() {
             }
             // Convert ArrayBuffer to base64 safely
             const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-              binary += String.fromCharCode(bytes[i]);
+            const chunks: string[] = [];
+            const chunkSize = 0x8000;
+            for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+              chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
             }
-            payloadContent = btoa(binary);
+            payloadContent = btoa(chunks.join(''));
             isBase64 = true;
           } else {
             const text = event.target?.result;
@@ -512,16 +536,34 @@ export default function App() {
             payloadContent = text;
           }
 
-          const res = await fetch(`/api/theaters/${selectedTheater}/sources`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              file_name: file.name,
-              content: payloadContent,
-              is_base64: isBase64
-            })
-          });
-          resolve(res.ok);
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `/api/theaters/${selectedTheater}/sources`);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable && ev.total > 0) {
+              const pct = Math.min(100, Math.round((ev.loaded / ev.total) * 100));
+              onPhase?.(pct >= 100 ? 'indexing' : 'uploading', pct >= 100 ? null : pct);
+            } else {
+              onPhase?.('uploading', null);
+            }
+          };
+
+          xhr.upload.onload = () => {
+            onPhase?.('indexing', null);
+          };
+
+          xhr.onload = () => {
+            resolve(xhr.status >= 200 && xhr.status < 300);
+          };
+          xhr.onerror = () => resolve(false);
+
+          onPhase?.('uploading', 0);
+          xhr.send(JSON.stringify({
+            file_name: file.name,
+            content: payloadContent,
+            is_base64: isBase64
+          }));
         } catch (e) {
           console.error(e);
           resolve(false);
@@ -538,18 +580,35 @@ export default function App() {
   };
 
   const handleFilesUpload = async (files: FileList | File[]) => {
-    if (!files || files.length === 0 || !selectedTheater) return;
+    if (isUploadingSource || !files || files.length === 0 || !selectedTheater) return;
     setIsUploadingSource(true);
     setSourceUploadFeedback(null);
 
     let successCount = 0;
     const fileArray = Array.from(files);
 
-    for (const file of fileArray) {
-      const ok = await uploadSingleFile(file);
+    for (let i = 0; i < fileArray.length; i++) {
+      const file = fileArray[i];
+      setUploadProgress({
+        current: i + 1,
+        total: fileArray.length,
+        currentFileName: file.name,
+        phase: 'reading',
+        percent: null
+      });
+      const ok = await uploadSingleFile(file, (phase, percent) => {
+        setUploadProgress({
+          current: i + 1,
+          total: fileArray.length,
+          currentFileName: file.name,
+          phase,
+          percent
+        });
+      });
       if (ok) successCount++;
     }
 
+    setUploadProgress(null);
     setIsUploadingSource(false);
     if (successCount > 0) {
       setSourceUploadFeedback(`${successCount} document(s) importé(s) et indexé(s) avec succès !`);
@@ -565,12 +624,17 @@ export default function App() {
   const handleDropFiles = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingSource(false);
+    if (isUploadingSource) return;
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFilesUpload(e.dataTransfer.files);
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isUploadingSource) {
+      e.target.value = '';
+      return;
+    }
     if (e.target.files && e.target.files.length > 0) {
       handleFilesUpload(e.target.files);
       e.target.value = '';
@@ -1159,361 +1223,274 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--canvas)', overflow: 'hidden' }}>
 
-{/* =========================================================================
+      {/* =========================================================================
           SHARED COMPONENT: SideNavBar (Barre Latérale Tactique Adaptative - Prop. 2)
          ========================================================================= */}
-          <aside style={{
-            width: isSidebarCollapsed ? '68px' : '272px',
-            background: 'var(--surface-container-lowest)',
-            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            transition: 'width 0.2s ease',
-            flexShrink: 0,
-            zIndex: 20,
-            boxShadow: '8px 0 24px rgba(0, 0, 0, 0.65)'
-          }}>
-            {/* Zone Haut : Marque & Repliage unique */}
-            <div style={{
-              padding: isSidebarCollapsed ? '14px 8px' : '16px 16px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+      <aside style={{
+        width: isSidebarCollapsed ? '68px' : '272px',
+        background: 'var(--surface-container-lowest)',
+        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        transition: 'width 0.2s ease',
+        flexShrink: 0,
+        zIndex: 20,
+        boxShadow: '8px 0 24px rgba(0, 0, 0, 0.65)'
+      }}>
+        {/* Zone Haut : Marque & Repliage unique */}
+        <div style={{
+          padding: isSidebarCollapsed ? '14px 8px' : '16px 16px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
+          gap: '10px'
+        }}>
+          <div
+            onClick={() => setCurrentView('landing')}
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: isSidebarCollapsed ? 'center' : 'space-between',
-              gap: '10px'
+              gap: '11px',
+              cursor: 'pointer',
+              minWidth: 0
+            }}
+            title="Retour à la Bibliothèque d'Univers"
+          >
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '8px',
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+              background: 'var(--surface-container-high)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.12)'
             }}>
-              <div
+              <DramatisLogo size={24} />
+            </div>
+            {!isSidebarCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{
+                  fontFamily: 'var(--font-title)',
+                  fontSize: '1.12rem',
+                  fontWeight: 700,
+                  letterSpacing: '-0.02em',
+                  color: 'var(--gold)',
+                  lineHeight: 1.1
+                }}>
+                  Dramatis
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.66rem',
+                  color: 'var(--text-dim)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  marginTop: '2px',
+                  whiteSpace: 'nowrap'
+                }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                  <span>Harnais JdR Agentique</span>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(true)}
+              style={{
+                padding: '6px',
+                borderRadius: '6px',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-dim)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                flexShrink: 0
+              }}
+              title="Replier la barre latérale"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Navigation Contextuelle (Global vs Univers Actif) */}
+        <nav style={{
+          flex: 1,
+          padding: '14px 10px',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px'
+        }}>
+          {currentView !== 'studio' ? (
+            <>
+              {!isSidebarCollapsed && (
+                <div style={{
+                  padding: '0 8px 6px 8px',
+                  fontSize: '0.66rem',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: 'var(--text-dim)',
+                  fontWeight: 600
+                }}>
+                  Bibliothèque
+                </div>
+              )}
+
+              {/* Mes Univers */}
+              <button
                 onClick={() => setCurrentView('landing')}
                 style={{
+                  width: '100%',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '11px',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: currentView === 'landing' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: currentView === 'landing' ? '3px solid var(--gold)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: currentView === 'landing' ? 'var(--gold)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: currentView === 'landing' ? 600 : 400,
                   cursor: 'pointer',
-                  minWidth: 0
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
                 }}
-                title="Retour à la Bibliothèque d'Univers"
+                title="Mes Univers"
               >
-                <div style={{
-                  width: '38px',
-                  height: '38px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(245, 158, 11, 0.45)',
-                  background: 'var(--surface-container-high)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: 'inset 0 0 10px rgba(245, 158, 11, 0.12)'
-                }}>
-                  <DramatisLogo size={24} />
-                </div>
+                <Library size={18} color={currentView === 'landing' ? 'var(--gold)' : 'var(--text-dim)'} />
                 {!isSidebarCollapsed && (
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <span style={{
-                      fontFamily: 'var(--font-title)',
-                      fontSize: '1.12rem',
-                      fontWeight: 700,
-                      letterSpacing: '-0.02em',
-                      color: 'var(--gold)',
-                      lineHeight: 1.1
-                    }}>
-                      Dramatis
-                    </span>
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.66rem',
-                      color: 'var(--text-dim)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      marginTop: '2px',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
-                      <span>Harnais JdR Agentique</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Mes Univers</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                      {theaters.length}
                     </span>
                   </div>
                 )}
-              </div>
+              </button>
 
+              {/* Créer / Importer */}
+              <button
+                onClick={() => setIsWorkspaceModalOpen(true)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  borderLeft: '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Créer / Importer un univers"
+              >
+                <Plus size={18} color="var(--gold)" />
+                {!isSidebarCollapsed && <span>Créer / Importer</span>}
+              </button>
+
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
+
+              {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
+              <button
+                onClick={openSettingsScreen}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: currentView === 'settings' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: currentView === 'settings' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: currentView === 'settings' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                  position: 'relative'
+                }}
+                title="Paramètres — Workflows, Agents & Évaluations"
+              >
+                <Settings size={18} color={currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Paramètres</span>
+                    {pendingApprovalsCount > 0 && (
+                      <span style={{
+                        fontSize: '0.68rem',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        color: '#fbbf24',
+                        background: 'rgba(245, 158, 11, 0.18)',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        padding: '1px 6px',
+                        borderRadius: '9999px'
+                      }}>
+                        {pendingApprovalsCount}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {isSidebarCollapsed && pendingApprovalsCount > 0 && (
+                  <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
+                )}
+              </button>
+
+              {/* Accès Rapide aux Univers */}
               {!isSidebarCollapsed && (
-                <button
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  style={{
-                    padding: '6px',
-                    borderRadius: '6px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--text-dim)',
-                    cursor: 'pointer',
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                  <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    flexShrink: 0
-                  }}
-                  title="Replier la barre latérale"
-                >
-                  <PanelLeftClose size={16} />
-                </button>
-              )}
-            </div>
+                    justifyContent: 'space-between',
+                    padding: '0 8px 8px 8px',
+                    fontSize: '0.66rem',
+                    fontFamily: 'var(--font-mono)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-dim)',
+                    fontWeight: 600
+                  }}>
+                    <span>Accès Rapide ({theaters.length})</span>
+                  </div>
 
-            {/* Navigation Contextuelle (Global vs Univers Actif) */}
-            <nav style={{
-              flex: 1,
-              padding: '14px 10px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '4px'
-            }}>
-              {currentView !== 'studio' ? (
-                <>
-                  {!isSidebarCollapsed && (
-                    <div style={{
-                      padding: '0 8px 6px 8px',
-                      fontSize: '0.66rem',
-                      fontFamily: 'var(--font-mono)',
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: 'var(--text-dim)',
-                      fontWeight: 600
-                    }}>
-                      Bibliothèque
-                    </div>
-                  )}
-
-                  {/* Mes Univers */}
-                  <button
-                    onClick={() => setCurrentView('landing')}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: currentView === 'landing' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: currentView === 'landing' ? '3px solid var(--gold)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: currentView === 'landing' ? 'var(--gold)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: currentView === 'landing' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Mes Univers"
-                  >
-                    <Library size={18} color={currentView === 'landing' ? 'var(--gold)' : 'var(--text-dim)'} />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Mes Univers</span>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
-                          {theaters.length}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-
-                  {/* Créer / Importer */}
-                  <button
-                    onClick={() => setIsWorkspaceModalOpen(true)}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      borderLeft: '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Créer / Importer un univers"
-                  >
-                    <Plus size={18} color="var(--gold)" />
-                    {!isSidebarCollapsed && <span>Créer / Importer</span>}
-                  </button>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
-
-                  {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
-                  <button
-                    onClick={openSettingsScreen}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: currentView === 'settings' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: currentView === 'settings' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: currentView === 'settings' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease',
-                      position: 'relative'
-                    }}
-                    title="Paramètres — Workflows, Agents & Évaluations"
-                  >
-                    <Settings size={18} color={currentView === 'settings' ? 'var(--cobalt-light)' : 'var(--text-dim)'} />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Paramètres</span>
-                        {pendingApprovalsCount > 0 && (
-                          <span style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            fontWeight: 700,
-                            color: '#fbbf24',
-                            background: 'rgba(245, 158, 11, 0.18)',
-                            border: '1px solid rgba(245, 158, 11, 0.45)',
-                            padding: '1px 6px',
-                            borderRadius: '9999px'
-                          }}>
-                            {pendingApprovalsCount}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {isSidebarCollapsed && pendingApprovalsCount > 0 && (
-                      <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
-                    )}
-                  </button>
-
-                  {/* Accès Rapide aux Univers */}
-                  {!isSidebarCollapsed && (
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '0 8px 8px 8px',
-                        fontSize: '0.66rem',
-                        fontFamily: 'var(--font-mono)',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: 'var(--text-dim)',
-                        fontWeight: 600
-                      }}>
-                        <span>Accès Rapide ({theaters.length})</span>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
-                        {theaters.map((th) => {
-                          const isSelected = th === selectedTheater;
-                          return (
-                            <button
-                              key={th}
-                              onClick={() => {
-                                setSelectedTheater(th);
-                                setActiveStep('signal');
-                                setCurrentView('studio');
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '7px 10px',
-                                borderRadius: '6px',
-                                background: isSelected ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
-                                border: isSelected ? '1px solid rgba(245, 158, 11, 0.28)' : '1px solid transparent',
-                                color: isSelected ? 'var(--text-main)' : 'var(--text-muted)',
-                                fontSize: '0.8rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '8px',
-                                textAlign: 'left'
-                              }}
-                              title={`Ouvrir ${getDisplayName(th)}`}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: isSelected ? 'var(--gold)' : 'var(--text-dim)' }} />
-                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {getDisplayName(th)}
-                                </span>
-                              </div>
-                              {isSelected && (
-                                <span style={{ fontSize: '0.64rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', flexShrink: 0 }}>
-                                  Actif
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {/* Retour vers la bibliothèque */}
-                  <button
-                    onClick={() => setCurrentView('landing')}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '10px',
-                      padding: isSidebarCollapsed ? '9px 0' : '8px 12px',
-                      borderRadius: '6px',
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      border: '1px solid rgba(255, 255, 255, 0.08)',
-                      color: 'var(--text-muted)',
-                      fontSize: '0.82rem',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      textAlign: 'left'
-                    }}
-                    title="Retour à Tous les Univers"
-                  >
-                    <ArrowLeft size={15} color="var(--text-dim)" />
-                    {!isSidebarCollapsed && <span>Tous les Univers</span>}
-                  </button>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
-
-                  {!isSidebarCollapsed && (
-                    <>
-                      <div style={{
-                        padding: '0 8px 6px 8px',
-                        fontSize: '0.66rem',
-                        fontFamily: 'var(--font-mono)',
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: 'var(--text-dim)',
-                        fontWeight: 600
-                      }}>
-                        Univers Actif
-                      </div>
-
-                      {/* Sélecteur rapide d'univers */}
-                      <div style={{ padding: '0 4px 10px 4px' }}>
-                        <select
-                          value={selectedTheater}
-                          onChange={(e) => {
-                            setSelectedTheater(e.target.value);
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '220px', overflowY: 'auto' }}>
+                    {theaters.map((th) => {
+                      const isSelected = th === selectedTheater;
+                      return (
+                        <button
+                          key={th}
+                          onClick={() => {
+                            setSelectedTheater(th);
                             setActiveStep('signal');
                             setCurrentView('studio');
                           }}
@@ -1521,1297 +1498,1374 @@ export default function App() {
                             width: '100%',
                             padding: '7px 10px',
                             borderRadius: '6px',
-                            background: 'var(--surface-container-high)',
-                            border: '1px solid rgba(245, 158, 11, 0.35)',
-                            color: 'var(--gold)',
+                            background: isSelected ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+                            border: isSelected ? '1px solid rgba(245, 158, 11, 0.28)' : '1px solid transparent',
+                            color: isSelected ? 'var(--text-main)' : 'var(--text-muted)',
                             fontSize: '0.8rem',
-                            fontWeight: 600,
-                            cursor: 'pointer'
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            textAlign: 'left'
                           }}
-                          title="Changer d'univers actif"
+                          title={`Ouvrir ${getDisplayName(th)}`}
                         >
-                          {theaters.map((th) => (
-                            <option key={th} value={th} style={{ background: '#10141a', color: '#dfe2eb' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, background: isSelected ? 'var(--gold)' : 'var(--text-dim)' }} />
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {getDisplayName(th)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Vue d'ensemble */}
-                  <button
-                    onClick={() => {
-                      setActiveStep('signal');
-                      setCurrentView('studio');
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: activeStep === 'signal' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Vue d'ensemble"
-                  >
-                    <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
-                    {!isSidebarCollapsed && <span>Vue d'ensemble</span>}
-                  </button>
-
-                  {/* Sources & Corpus */}
-                  <button
-                    onClick={() => {
-                      setActiveStep('sources');
-                      setCurrentView('studio');
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: activeStep === 'sources' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Sources & Corpus"
-                  >
-                    <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Sources & Corpus</span>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
-                          {sourcesList.length}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-
-                  {/* Codex & Lore */}
-                  <button
-                    onClick={() => {
-                      setActiveStep('wiki');
-                      setCurrentView('studio');
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: activeStep === 'wiki' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Codex & Lore"
-                  >
-                    <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Codex & Lore</span>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
-                          {wikiNotes.length}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-
-                  {/* Personnages */}
-                  <button
-                    onClick={() => {
-                      setActiveStep('signal');
-                      setCurrentView('studio');
-                      setTimeout(() => {
-                        document.getElementById('studio-personae-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }, 60);
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      borderLeft: '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Personnages"
-                  >
-                    <Users size={18} color="var(--text-dim)" />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Personnages</span>
-                        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
-                          {signalSheet?.personae_count ?? personae.length}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-
-                  {/* Table Virtuelle */}
-                  <button
-                    onClick={() => {
-                      setActiveStep('stage');
-                      setCurrentView('studio');
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
-                      borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: activeStep === 'stage' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Table Virtuelle"
-                  >
-                    <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
-                    {!isSidebarCollapsed && <span>Table Virtuelle</span>}
-                  </button>
-
-                  {/* L'Archiviste IA */}
-                  <button
-                    onClick={() => {
-                      setIsDrawerOpen(true);
-                      setActiveToolTab('archivist');
-                    }}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
-                      borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="L'Archiviste IA"
-                  >
-                    <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
-                    {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
-                  </button>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
-
-                  {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
-                  <button
-                    onClick={openSettingsScreen}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
-                      gap: '12px',
-                      padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
-                      borderRadius: '6px',
-                      background: 'transparent',
-                      borderLeft: '3px solid transparent',
-                      borderTop: 'none',
-                      borderRight: 'none',
-                      borderBottom: 'none',
-                      color: 'var(--text-muted)',
-                      fontSize: '0.88rem',
-                      fontWeight: 400,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease',
-                      position: 'relative'
-                    }}
-                    title="Paramètres — Workflows, Agents & Évaluations"
-                  >
-                    <Settings size={18} color="var(--text-dim)" />
-                    {!isSidebarCollapsed && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <span>Paramètres</span>
-                        {pendingApprovalsCount > 0 && (
-                          <span style={{
-                            fontSize: '0.68rem',
-                            fontFamily: 'var(--font-mono)',
-                            fontWeight: 700,
-                            color: '#fbbf24',
-                            background: 'rgba(245, 158, 11, 0.18)',
-                            border: '1px solid rgba(245, 158, 11, 0.45)',
-                            padding: '1px 6px',
-                            borderRadius: '9999px'
-                          }}>
-                            {pendingApprovalsCount}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {isSidebarCollapsed && pendingApprovalsCount > 0 && (
-                      <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
-                    )}
-                  </button>
-                </>
-              )}
-            </nav>
-
-            {/* Pied de Sidebar minimal : Statut moteur local (sans doublon profil MJ) */}
-            <div style={{
-              padding: isSidebarCollapsed ? '12px 6px' : '12px 16px',
-              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-              background: 'rgba(0, 0, 0, 0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: isSidebarCollapsed ? 'center' : 'space-between'
-            }}
-              title="Dramatis v2.1 — Moteur Local Strict"
-            >
-              {!isSidebarCollapsed ? (
-                <>
-                  <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '7px' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)' }} />
-                    <span>{signalSheet?.privacy_mode === 'strict_local' ? 'Local Strict' : 'Mode Hybride'}</span>
-                  </span>
-                  <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
-                    v2.1
-                  </span>
-                </>
-              ) : (
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px rgba(16, 185, 129, 0.7)' }} />
-              )}
-            </div>
-          </aside>
-
-
-          {/* =========================================================================
-          2. CANEVAS PRINCIPAL (TopNavBar Global & Zone Principale Dynamique)
-         ========================================================================= */}
-          <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#0B0C10' }}>
-            {/* SHARED COMPONENT: TopNavBar Stitch Dark UI (Global) */}
-            <header style={{
-              height: '56px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '0 24px',
-              background: 'rgba(11, 12, 16, 0.92)',
-              backdropFilter: 'blur(12px)',
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-              zIndex: 15,
-              flexShrink: 0
-            }}>
-              {/* Breadcrumb tactique Stitch */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {isSidebarCollapsed && (
-                  <button
-                    onClick={() => setIsSidebarCollapsed(false)}
-                    style={{
-                      padding: '5px',
-                      borderRadius: '6px',
-                      background: 'var(--surface-container-high)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      marginRight: '4px'
-                    }}
-                    title="Déplier la barre latérale"
-                  >
-                    <PanelLeftOpen size={15} />
-                  </button>
-                )}
-                <div
-                  onClick={() => setCurrentView('landing')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.78rem',
-                    color: 'var(--text-dim)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em'
-                  }}
-                  title="Retour à la Bibliothèque d'Univers"
-                >
-                  <DramatisLogo size={18} />
-                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
-                </div>
-                <span style={{ color: 'var(--border)' }}>/</span>
-                {currentView === 'landing' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
-                      BIBLIOTHÈQUE DES UNIVERS
-                    </span>
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.68rem',
-                      background: 'rgba(37, 99, 235, 0.18)',
-                      border: '1px solid rgba(59, 130, 246, 0.35)',
-                      color: 'var(--cobalt-light)',
-                      padding: '1px 6px',
-                      borderRadius: '4px'
-                    }}>
-                      {theaters.length} Univers
-                    </span>
-                  </div>
-                ) : currentView === 'settings' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem' }}>
-                      PARAMÈTRES
-                    </span>
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.68rem',
-                      background: 'rgba(37, 99, 235, 0.18)',
-                      border: '1px solid rgba(59, 130, 246, 0.35)',
-                      color: 'var(--cobalt-light)',
-                      padding: '1px 7px',
-                      borderRadius: '4px'
-                    }}>
-                      WORKFLOWS & ÉVALUATIONS
-                    </span>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, whiteSpace: 'nowrap' }}>
-                    <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '340px' }}>
-                      {signalSheet?.name || getDisplayName(selectedTheater)}
-                    </span>
-                    <span style={{ color: 'var(--border)' }}>/</span>
-                    <span style={{ color: 'var(--gold)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600 }}>
-                      {activeStep === 'signal'
-                        ? "Vue d'ensemble"
-                        : activeStep === 'sources'
-                          ? 'Sources & Corpus'
-                          : activeStep === 'wiki'
-                            ? 'Codex & Lore'
-                            : 'Table Virtuelle'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Droite : Contexte de vue + Contrôle Son + Login / Préférences */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {currentView === 'landing' ? (
-                  <>
-                    {/* Barre de Recherche centrale */}
-                    <div style={{
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                      width: '240px'
-                    }}>
-                      <Search size={14} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
-                      <input
-                        type="text"
-                        placeholder="Rechercher des univers..."
-                        value={landingSearch}
-                        onChange={(e) => setLandingSearch(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '6px 12px 6px 34px',
-                          borderRadius: '20px',
-                          background: 'var(--surface-container-high)',
-                          border: '1px solid var(--border)',
-                          color: 'var(--text-main)',
-                          fontSize: '0.8rem',
-                          outline: 'none'
-                        }}
-                      />
-                      {landingSearch && (
-                        <button
-                          onClick={() => setLandingSearch('')}
-                          style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                        >
-                          <X size={13} />
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span style={{ fontSize: '0.64rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', flexShrink: 0 }}>
+                              Actif
+                            </span>
+                          )}
                         </button>
-                      )}
-                    </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Retour vers la bibliothèque */}
+              <button
+                onClick={() => setCurrentView('landing')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '10px',
+                  padding: isSidebarCollapsed ? '9px 0' : '8px 12px',
+                  borderRadius: '6px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.82rem',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  textAlign: 'left'
+                }}
+                title="Retour à Tous les Univers"
+              >
+                <ArrowLeft size={15} color="var(--text-dim)" />
+                {!isSidebarCollapsed && <span>Tous les Univers</span>}
+              </button>
 
-                    {/* Sélecteur Vue Grille / Liste */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      background: 'var(--surface-container-high)',
-                      border: '1px solid var(--border)',
-                      borderRadius: '6px',
-                      padding: '2px'
-                    }}>
-                      <button
-                        onClick={() => setLandingViewMode('grid')}
-                        style={{
-                          padding: '4px 7px',
-                          borderRadius: '4px',
-                          background: landingViewMode === 'grid' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                          color: landingViewMode === 'grid' ? 'var(--cobalt-light)' : 'var(--text-dim)',
-                          border: 'none',
-                          display: 'flex',
-                          alignItems: 'center',
-                          cursor: 'pointer'
-                        }}
-                        title="Vue Grille"
-                      >
-                        <Grid size={13} />
-                      </button>
-                      <button
-                        onClick={() => setLandingViewMode('list')}
-                        style={{
-                          padding: '4px 7px',
-                          borderRadius: '4px',
-                          background: landingViewMode === 'list' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                          color: landingViewMode === 'list' ? 'var(--cobalt-light)' : 'var(--text-dim)',
-                          border: 'none',
-                          display: 'flex',
-                          alignItems: 'center',
-                          cursor: 'pointer'
-                        }}
-                        title="Vue Liste"
-                      >
-                        <List size={13} />
-                      </button>
-                    </div>
-                  </>
-                ) : currentView === 'studio' ? (
-                  <>
-                    {/* Bouton Panneau Outils & Archiviste */}
-                    <button
-                      onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '7px',
-                        padding: '6px 14px',
-                        borderRadius: '8px',
-                        background: isDrawerOpen ? 'rgba(59, 130, 246, 0.22)' : 'var(--surface-container-high)',
-                        border: isDrawerOpen ? '1px solid var(--cobalt-core)' : '1px solid var(--border)',
-                        color: isDrawerOpen ? 'var(--cobalt-light)' : 'var(--text-main)',
-                        fontSize: '0.82rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.15s ease'
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
+
+              {!isSidebarCollapsed && (
+                <>
+                  <div style={{
+                    padding: '0 8px 6px 8px',
+                    fontSize: '0.66rem',
+                    fontFamily: 'var(--font-mono)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-dim)',
+                    fontWeight: 600
+                  }}>
+                    Univers Actif
+                  </div>
+
+                  {/* Sélecteur rapide d'univers */}
+                  <div style={{ padding: '0 4px 10px 4px' }}>
+                    <select
+                      className="dramatis-select"
+                      aria-label="Univers actif"
+                      value={selectedTheater}
+                      onChange={(e) => {
+                        setSelectedTheater(e.target.value);
+                        setActiveStep('signal');
+                        setCurrentView('studio');
                       }}
                     >
-                      <Database size={14} color={isDrawerOpen ? 'var(--cobalt-light)' : 'var(--gold)'} />
-                      <span>Outils &amp; Archiviste</span>
-                    </button>
-                  </>
-                ) : null}
-
-                {/* Sélecteur i18n (FR / EN / ES / DE / PT) */}
-                <select
-                  value={uiLocale}
-                  onChange={(e) => setUiLocale(e.target.value as UiLocale)}
-                  style={{
-                    padding: '5px 8px',
-                    borderRadius: '6px',
-                    background: 'var(--surface-container-high)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-main)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.74rem',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                  title="Langue de l'interface & des tags"
-                >
-                  {SUPPORTED_LOCALES.map((loc) => (
-                    <option key={loc.code} value={loc.code} style={{ background: '#10141a', color: '#f1f5f9' }}>
-                      {loc.label}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Contrôle du Son : Ambiance active */}
-                <button
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    background: 'var(--surface-container-high)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    color: 'var(--text-main)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.76rem',
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title="Ambiance sonore active"
-                >
-                  <Volume2 size={15} color="var(--cobalt-core)" />
-                  <span>Ambiance active</span>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                </button>
-
-                {/* Section Login / Préférences : Maître de Jeu */}
-                <button
-                  onClick={openSettingsScreen}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '4px 10px 4px 12px',
-                    borderRadius: '8px',
-                    borderLeft: '1px solid rgba(255, 255, 255, 0.1)',
-                    background: currentView === 'settings' ? 'rgba(59, 130, 246, 0.14)' : 'transparent',
-                    borderTop: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
-                    borderRight: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
-                    borderBottom: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
-                    cursor: 'pointer'
-                  }}
-                  title="Profil & Paramètres — Workflows & Évaluations"
-                >
-                  <div style={{
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(59, 130, 246, 0.45)',
-                    background: 'var(--surface-container-high)',
-                    overflow: 'hidden',
-                    flexShrink: 0,
-                    boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
-                  }}>
-                    <img
-                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
-                      alt="Portrait Maître de Jeu"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
+                      {theaters.map((th) => (
+                        <option key={th} value={th} style={{ background: '#10141a', color: '#dfe2eb' }}>
+                          {getDisplayName(th)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                      Maître de Jeu
-                    </span>
-                    <span style={{
-                      fontSize: '0.68rem',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--cobalt-light)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      marginTop: '2px'
-                    }}>
-                      <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                      <span>En ligne</span>
+                </>
+              )}
+
+              {/* Vue d'ensemble */}
+              <button
+                onClick={() => {
+                  setActiveStep('signal');
+                  setCurrentView('studio');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'signal' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'signal' ? '3px solid var(--gold)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'signal' ? 'var(--gold)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'signal' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Vue d'ensemble"
+              >
+                <Globe size={18} color={activeStep === 'signal' ? 'var(--gold)' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && <span>Vue d'ensemble</span>}
+              </button>
+
+              {/* Sources & Corpus */}
+              <button
+                onClick={() => {
+                  setActiveStep('sources');
+                  setCurrentView('studio');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'sources' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'sources' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'sources' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Sources & Corpus"
+              >
+                <FileText size={18} color={activeStep === 'sources' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Sources & Corpus</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)', background: 'rgba(37, 99, 235, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {sourcesList.length}
                     </span>
                   </div>
-                </button>
-              </div>
-            </header>
+                )}
+              </button>
 
-            {/* Zone Principale : Bibliothèque d'Univers, Paramètres Workflows/Évals ou Univers Actif */}
-            <div style={{ flex: 1, minHeight: 0, overflowY: currentView === 'settings' ? 'hidden' : 'auto', padding: currentView === 'studio' ? '32px 36px' : '0', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-              {currentView === 'landing' ? (
-                <>
-{/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
-          <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '32px 32px 48px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              {/* Codex & Lore */}
+              <button
+                onClick={() => {
+                  setActiveStep('wiki');
+                  setCurrentView('studio');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'wiki' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'wiki' ? '3px solid #10b981' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'wiki' ? '#34d399' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'wiki' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Codex & Lore"
+              >
+                <BookOpen size={18} color={activeStep === 'wiki' ? '#34d399' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Codex & Lore</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {wikiNotes.length}
+                    </span>
+                  </div>
+                )}
+              </button>
 
-            {/* 1. GRAND BANDEAU IMMERSIF 'À LA UNE' : ANASTASIUS SUR BRAHAHEÏM (OU L'UNIVERS ACTIF) */}
-            <section style={{
-              position: 'relative',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              border: '1px solid rgba(245, 158, 11, 0.45)',
-              background: 'var(--surface-low)',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
-            }}>
-              {/* Overlay Décoratif Ambiance Arcanique & Cybernétique */}
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'linear-gradient(135deg, rgba(27, 21, 40, 0.95) 0%, rgba(16, 20, 26, 0.98) 50%, rgba(10, 21, 32, 0.95) 100%)',
-                zIndex: 0
-              }}>
-                <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at top right, rgba(189, 162, 255, 0.15), transparent 60%)' }} />
-                <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.12), transparent 50%)' }} />
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  opacity: 0.08,
-                  backgroundImage: 'linear-gradient(to right, #808080 1px, transparent 1px), linear-gradient(to bottom, #808080 1px, transparent 1px)',
-                  backgroundSize: '24px 24px'
-                }} />
-              </div>
+              {/* Personnages */}
+              <button
+                onClick={() => {
+                  setActiveStep('signal');
+                  setCurrentView('studio');
+                  setTimeout(() => {
+                    document.getElementById('studio-personae-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }, 60);
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  borderLeft: '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Personnages"
+              >
+                <Users size={18} color="var(--text-dim)" />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Personnages</span>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--gold)', background: 'var(--surface-container-high)', padding: '1px 6px', borderRadius: '4px' }}>
+                      {signalSheet?.personae_count ?? personae.length}
+                    </span>
+                  </div>
+                )}
+              </button>
 
-              <div style={{
-                position: 'relative',
-                zIndex: 1,
-                padding: '32px 36px',
+              {/* Table Virtuelle */}
+              <button
+                onClick={() => {
+                  setActiveStep('stage');
+                  setCurrentView('studio');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: activeStep === 'stage' ? 'var(--surface-container-high)' : 'transparent',
+                  borderLeft: activeStep === 'stage' ? '3px solid var(--gold)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: activeStep === 'stage' ? 'var(--gold)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: activeStep === 'stage' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Table Virtuelle"
+              >
+                <Swords size={18} color={activeStep === 'stage' ? 'var(--gold)' : 'var(--text-dim)'} />
+                {!isSidebarCollapsed && <span>Table Virtuelle</span>}
+              </button>
+
+              {/* L'Archiviste IA */}
+              <button
+                onClick={() => {
+                  setIsDrawerOpen(true);
+                  setActiveToolTab('archivist');
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: isDrawerOpen && activeToolTab === 'archivist' ? 'rgba(37, 99, 235, 0.18)' : 'transparent',
+                  borderLeft: isDrawerOpen && activeToolTab === 'archivist' ? '3px solid var(--cobalt-core)' : '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: isDrawerOpen && activeToolTab === 'archivist' ? 600 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+                title="L'Archiviste IA"
+              >
+                <Bot size={18} color={isDrawerOpen && activeToolTab === 'archivist' ? 'var(--cobalt-light)' : 'var(--cobalt-core)'} />
+                {!isSidebarCollapsed && <span>L'Archiviste IA</span>}
+              </button>
+
+              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '10px 4px' }} />
+
+              {/* Entrée unique Paramètres (Workflows, Agents & Évaluations) */}
+              <button
+                onClick={openSettingsScreen}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isSidebarCollapsed ? 'center' : 'flex-start',
+                  gap: '12px',
+                  padding: isSidebarCollapsed ? '10px 0' : '9px 12px',
+                  borderRadius: '6px',
+                  background: 'transparent',
+                  borderLeft: '3px solid transparent',
+                  borderTop: 'none',
+                  borderRight: 'none',
+                  borderBottom: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.88rem',
+                  fontWeight: 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease',
+                  position: 'relative'
+                }}
+                title="Paramètres — Workflows, Agents & Évaluations"
+              >
+                <Settings size={18} color="var(--text-dim)" />
+                {!isSidebarCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <span>Paramètres</span>
+                    {pendingApprovalsCount > 0 && (
+                      <span style={{
+                        fontSize: '0.68rem',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: 700,
+                        color: '#fbbf24',
+                        background: 'rgba(245, 158, 11, 0.18)',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        padding: '1px 6px',
+                        borderRadius: '9999px'
+                      }}>
+                        {pendingApprovalsCount}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {isSidebarCollapsed && pendingApprovalsCount > 0 && (
+                  <span style={{ position: 'absolute', top: '8px', right: '14px', width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24' }} />
+                )}
+              </button>
+            </>
+          )}
+        </nav>
+
+        {/* Pied de Sidebar minimal : Statut moteur local (sans doublon profil MJ) */}
+        <div style={{
+          padding: isSidebarCollapsed ? '12px 6px' : '12px 16px',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          background: 'rgba(0, 0, 0, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isSidebarCollapsed ? 'center' : 'space-between'
+        }}
+          title="Dramatis v2.1 — Moteur Local Strict"
+        >
+          {!isSidebarCollapsed ? (
+            <>
+              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)' }} />
+                <span>{signalSheet?.privacy_mode === 'strict_local' ? 'Local Strict' : 'Mode Hybride'}</span>
+              </span>
+              <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                v2.1
+              </span>
+            </>
+          ) : (
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px rgba(16, 185, 129, 0.7)' }} />
+          )}
+        </div>
+      </aside>
+
+
+      {/* =========================================================================
+          2. CANEVAS PRINCIPAL (TopNavBar Global & Zone Principale Dynamique)
+         ========================================================================= */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: '#0B0C10' }}>
+        {/* SHARED COMPONENT: TopNavBar Stitch Dark UI (Global) */}
+        <header style={{
+          height: '56px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+          background: 'rgba(11, 12, 16, 0.92)',
+          backdropFilter: 'blur(12px)',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+          zIndex: 15,
+          flexShrink: 0
+        }}>
+          {/* Breadcrumb tactique Stitch */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {isSidebarCollapsed && (
+              <button
+                onClick={() => setIsSidebarCollapsed(false)}
+                style={{
+                  padding: '5px',
+                  borderRadius: '6px',
+                  background: 'var(--surface-container-high)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginRight: '4px'
+                }}
+                title="Déplier la barre latérale"
+              >
+                <PanelLeftOpen size={15} />
+              </button>
+            )}
+            <div
+              onClick={() => setCurrentView('landing')}
+              style={{
                 display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                minHeight: '320px',
-                gap: '20px'
-              }}>
-                <div>
-                  {/* Badges d'état supérieurs */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '4px 12px',
-                      borderRadius: '4px',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.72rem',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      background: 'rgba(245, 158, 11, 0.15)',
-                      color: 'var(--primary)',
-                      border: '1px solid rgba(245, 158, 11, 0.4)'
-                    }}>
-                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--gold)', boxShadow: '0 0 8px var(--gold)' }} />
-                      Univers Actif • Mis à l'Honneur
-                    </span>
-
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.72rem',
-                      color: 'var(--text-muted)',
-                      padding: '4px 10px',
-                      borderRadius: '4px',
-                      background: 'rgba(28, 32, 38, 0.8)',
-                      border: '1px solid rgba(83, 68, 52, 0.4)'
-                    }}>
-                      {selectedTheater} • {sourcesList.length} Source(s) • {signalSheet?.personae_count ?? personae.length} Personnage(s)
-                    </span>
-                  </div>
-
-                  {/* Titre & Description de l'univers mis en vedette */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(245, 158, 11, 0.5)',
-                      background: 'rgba(245, 158, 11, 0.12)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--gold)'
-                    }}>
-                      <Sparkles size={24} />
-                    </div>
-                    <h2 style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '2.4rem',
-                      color: 'var(--text-main)',
-                      fontWeight: 700,
-                      letterSpacing: '-0.02em',
-                      lineHeight: 1.1
-                    }}>
-                      {getDisplayName(selectedTheater)}
-                    </h2>
-                  </div>
-
-                  <p style={{
-                    fontSize: '1rem',
-                    color: 'var(--text-muted)',
-                    maxWidth: '920px',
-                    lineHeight: '1.65',
-                    marginBottom: '18px'
-                  }}>
-                    {signalSheet?.agent_curator_summary || "Explorez cet univers hermétique : règles déduites de vos sources, codex indexés, personnages cloisonnés et Archiviste IA dédié."}
-                  </p>
-
-                  {/* Badges de Lore Bleu Cobalt Lorekeeper */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '5px 12px',
-                      borderRadius: '4px',
-                      background: 'rgba(30, 58, 138, 0.6)',
-                      color: 'var(--cobalt-400)',
-                      border: '1px solid rgba(59, 130, 246, 0.45)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.74rem',
-                      fontWeight: 500,
-                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
-                    }}>
-                      <Zap size={13} color="var(--cobalt-400)" />
-                      <span>Mémoire Vectorielle 100% Hermétique</span>
-                    </span>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '5px 12px',
-                      borderRadius: '4px',
-                      background: 'rgba(30, 58, 138, 0.6)',
-                      color: 'var(--cobalt-400)',
-                      border: '1px solid rgba(59, 130, 246, 0.45)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.74rem',
-                      fontWeight: 500,
-                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
-                    }}>
-                      <Shield size={13} color="var(--cobalt-400)" />
-                      <span>{signalSheet?.system_preset || 'Système Déduit'}</span>
-                    </span>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '5px 12px',
-                      borderRadius: '4px',
-                      background: 'rgba(30, 58, 138, 0.6)',
-                      color: 'var(--cobalt-400)',
-                      border: '1px solid rgba(59, 130, 246, 0.45)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.74rem',
-                      fontWeight: 500,
-                      boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
-                    }}>
-                      <Bot size={13} color="var(--cobalt-400)" />
-                      <span>Archiviste IA Dédié</span>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Boutons d'Action Principaux du Bandeau */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '18px' }}>
-                  <button
-                    onClick={() => {
-                      setCurrentView('studio');
-                      setActiveStep('signal');
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 22px',
-                      borderRadius: '6px',
-                      background: 'var(--gold)',
-                      color: '#0B0C10',
-                      fontWeight: 700,
-                      fontSize: '0.9rem',
-                      boxShadow: '0 4px 16px rgba(245, 158, 11, 0.3)',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <span>Ouvrir la Fiche Univers</span>
-                    <ArrowRight size={16} />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentView('studio');
-                      setActiveStep('stage');
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 18px',
-                      borderRadius: '6px',
-                      background: 'rgba(30, 58, 138, 0.4)',
-                      border: '1px solid var(--border-cobalt)',
-                      color: 'var(--cobalt-400)',
-                      fontWeight: 600,
-                      fontSize: '0.86rem'
-                    }}
-                  >
-                    <Swords size={15} color="var(--cobalt-400)" />
-                    <span>Lancer Session VTT</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setCurrentView('studio');
-                      setIsDrawerOpen(true);
-                      setActiveToolTab('archivist');
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '10px 18px',
-                      borderRadius: '6px',
-                      background: 'var(--surface-container)',
-                      border: '1px solid var(--border)',
-                      color: 'var(--text-main)',
-                      fontWeight: 600,
-                      fontSize: '0.86rem'
-                    }}
-                  >
-                    <Bot size={15} color="var(--gold)" />
-                    <span>Interroger l'Archiviste IA</span>
-                  </button>
-                </div>
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+                color: 'var(--text-dim)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em'
+              }}
+              title="Retour à la Bibliothèque d'Univers"
+            >
+              <DramatisLogo size={18} />
+              <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>DRAMATIS</span>
+            </div>
+            <span style={{ color: 'var(--border)' }}>/</span>
+            {currentView === 'landing' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--cobalt-light)', fontWeight: 600, fontSize: '0.85rem' }}>
+                  BIBLIOTHÈQUE DES UNIVERS
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.68rem',
+                  background: 'rgba(37, 99, 235, 0.18)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: 'var(--cobalt-light)',
+                  padding: '1px 6px',
+                  borderRadius: '4px'
+                }}>
+                  {theaters.length} Univers
+                </span>
               </div>
-            </section>
+            ) : currentView === 'settings' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem' }}>
+                  PARAMÈTRES
+                </span>
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.68rem',
+                  background: 'rgba(37, 99, 235, 0.18)',
+                  border: '1px solid rgba(59, 130, 246, 0.35)',
+                  color: 'var(--cobalt-light)',
+                  padding: '1px 7px',
+                  borderRadius: '4px'
+                }}>
+                  WORKFLOWS & ÉVALUATIONS
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, whiteSpace: 'nowrap' }}>
+                <span style={{ color: 'var(--text-main)', fontWeight: 600, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '340px' }}>
+                  {signalSheet?.name || getDisplayName(selectedTheater)}
+                </span>
+                <span style={{ color: 'var(--border)' }}>/</span>
+                <span style={{ color: 'var(--gold)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600 }}>
+                  {activeStep === 'signal'
+                    ? "Vue d'ensemble"
+                    : activeStep === 'sources'
+                      ? 'Sources & Corpus'
+                      : activeStep === 'wiki'
+                        ? 'Codex & Lore'
+                        : 'Table Virtuelle'}
+                </span>
+              </div>
+            )}
+          </div>
 
-            {/* 2. SECTION BIBLIOTHÈQUE DES UNIVERS (GRILLE DE CARTES GLASSMORPHISM & ACTION RAPIDE) */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <h3 style={{
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '1.5rem',
-                      fontWeight: 600,
-                      color: 'var(--text-main)',
-                      letterSpacing: '-0.015em'
-                    }}>
-                      Bibliothèque des Univers
-                    </h3>
-                    <span style={{
-                      padding: '3px 10px',
-                      borderRadius: '4px',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.74rem',
+          {/* Droite : Contexte de vue + Contrôle Son + Login / Préférences */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {currentView === 'landing' ? (
+              <>
+                {/* Barre de Recherche centrale */}
+                <div style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: '240px'
+                }}>
+                  <Search size={14} color="var(--text-dim)" style={{ position: 'absolute', left: '12px' }} />
+                  <input
+                    type="text"
+                    placeholder="Rechercher des univers..."
+                    value={landingSearch}
+                    onChange={(e) => setLandingSearch(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 12px 6px 34px',
+                      borderRadius: '20px',
                       background: 'var(--surface-container-high)',
                       border: '1px solid var(--border)',
-                      color: 'var(--primary)'
-                    }}>
-                      {theaters.length} Univers Définis
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginTop: '4px' }}>
-                    Chaque univers cloisonne ses règles, son corpus de documents, son Archiviste IA dédié, ses personnages et ses tables VTT.
-                  </p>
+                      color: 'var(--text-main)',
+                      fontSize: '0.8rem',
+                      outline: 'none'
+                    }}
+                  />
+                  {landingSearch && (
+                    <button
+                      onClick={() => setLandingSearch('')}
+                      style={{ position: 'absolute', right: '10px', color: 'var(--text-dim)', padding: '2px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
                 </div>
-              </div>
 
-              {/* Grille des Cartes d'Univers */}
-              {landingViewMode === 'grid' ? (
+                {/* Sélecteur Vue Grille / Liste */}
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                  gap: '20px'
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: 'var(--surface-container-high)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '2px'
                 }}>
-                  {/* Carte Action Rapide : Créer un Nouvel Univers */}
-                  <div
-                    onClick={() => setIsWorkspaceModalOpen(true)}
+                  <button
+                    onClick={() => setLandingViewMode('grid')}
                     style={{
-                      border: '2px dashed rgba(245, 158, 11, 0.4)',
-                      borderRadius: '12px',
-                      padding: '24px',
+                      padding: '4px 7px',
+                      borderRadius: '4px',
+                      background: landingViewMode === 'grid' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: landingViewMode === 'grid' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                      border: 'none',
                       display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      textAlign: 'center',
-                      background: 'rgba(10, 14, 20, 0.6)',
-                      cursor: 'pointer',
-                      minHeight: '220px',
-                      transition: 'all 0.2s ease'
+                      alignItems: 'center',
+                      cursor: 'pointer'
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = 'var(--gold)';
-                      e.currentTarget.style.background = 'rgba(245, 158, 11, 0.04)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = 'rgba(245, 158, 11, 0.4)';
-                      e.currentTarget.style.background = 'rgba(10, 14, 20, 0.6)';
-                    }}
+                    title="Vue Grille"
                   >
+                    <Grid size={13} />
+                  </button>
+                  <button
+                    onClick={() => setLandingViewMode('list')}
+                    style={{
+                      padding: '4px 7px',
+                      borderRadius: '4px',
+                      background: landingViewMode === 'list' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: landingViewMode === 'list' ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                      border: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      cursor: 'pointer'
+                    }}
+                    title="Vue Liste"
+                  >
+                    <List size={13} />
+                  </button>
+                </div>
+              </>
+            ) : currentView === 'studio' ? (
+              <>
+                {/* Bouton Panneau Outils & Archiviste */}
+                <button
+                  onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '7px',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    background: isDrawerOpen ? 'rgba(59, 130, 246, 0.22)' : 'var(--surface-container-high)',
+                    border: isDrawerOpen ? '1px solid var(--cobalt-core)' : '1px solid var(--border)',
+                    color: isDrawerOpen ? 'var(--cobalt-light)' : 'var(--text-main)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <Database size={14} color={isDrawerOpen ? 'var(--cobalt-light)' : 'var(--gold)'} />
+                  <span>Outils &amp; Archiviste</span>
+                </button>
+              </>
+            ) : null}
+
+            {/* Sélecteur i18n (FR / EN / ES / DE / PT) */}
+            <select
+              value={uiLocale}
+              onChange={(e) => setUiLocale(e.target.value as UiLocale)}
+              style={{
+                padding: '5px 8px',
+                borderRadius: '6px',
+                background: 'var(--surface-container-high)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-main)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.74rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Langue de l'interface & des tags"
+            >
+              {SUPPORTED_LOCALES.map((loc) => (
+                <option key={loc.code} value={loc.code} style={{ background: '#10141a', color: '#f1f5f9' }}>
+                  {loc.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Contrôle du Son : Ambiance active */}
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                background: 'var(--surface-container-high)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                color: 'var(--text-main)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.76rem',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Ambiance sonore active"
+            >
+              <Volume2 size={15} color="var(--cobalt-core)" />
+              <span>Ambiance active</span>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+            </button>
+
+            {/* Section Login / Préférences : Maître de Jeu */}
+            <button
+              onClick={openSettingsScreen}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '4px 10px 4px 12px',
+                borderRadius: '8px',
+                borderLeft: '1px solid rgba(255, 255, 255, 0.1)',
+                background: currentView === 'settings' ? 'rgba(59, 130, 246, 0.14)' : 'transparent',
+                borderTop: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                borderRight: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                borderBottom: currentView === 'settings' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                cursor: 'pointer'
+              }}
+              title="Profil & Paramètres — Workflows & Évaluations"
+            >
+              <div style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '6px',
+                border: '1px solid rgba(59, 130, 246, 0.45)',
+                background: 'var(--surface-container-high)',
+                overflow: 'hidden',
+                flexShrink: 0,
+                boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)'
+              }}>
+                <img
+                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcKKTk4O_LwP9_JTf5Ix8Gel6Pla_IEBj9fxpfUlLMnwixJBIIKl4aPFvpHi8Ln45NS-N3IMcbSuKrRY2-7xsVSnNAna2kan2r8RqNY3wNPbQKzQOcCvpsHDX-cJeNjyt872bvmo9NXpaujN67xRxhc6JNTxyn6I7HZe87WevP55b8uCWdxj8Lxh2g1l8nPsGAXahInYcAfX6rqdzcHzCTNST9l0tdZqwpSDscgEcF"
+                  alt="Portrait Maître de Jeu"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.1 }}>
+                  Maître de Jeu
+                </span>
+                <span style={{
+                  fontSize: '0.68rem',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--cobalt-light)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  marginTop: '2px'
+                }}>
+                  <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
+                  <span>En ligne</span>
+                </span>
+              </div>
+            </button>
+          </div>
+        </header>
+
+        {/* Zone Principale : Bibliothèque d'Univers, Paramètres Workflows/Évals ou Univers Actif */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: currentView === 'settings' ? 'hidden' : 'auto', padding: currentView === 'studio' ? '32px 36px' : '0', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+          {currentView === 'landing' ? (
+            <>
+              {/* Corps de la Landing Page Hub & Bibliothèque d'Univers (Bleu Cobalt & Or) */}
+              <div style={{ maxWidth: '1440px', width: '100%', margin: '0 auto', padding: '32px 32px 48px 32px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+
+                {/* 1. GRAND BANDEAU IMMERSIF 'À LA UNE' : ANASTASIUS SUR BRAHAHEÏM (OU L'UNIVERS ACTIF) */}
+                <section style={{
+                  position: 'relative',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  border: '1px solid rgba(245, 158, 11, 0.45)',
+                  background: 'var(--surface-low)',
+                  boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+                }}>
+                  {/* Overlay Décoratif Ambiance Arcanique & Cybernétique */}
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'linear-gradient(135deg, rgba(27, 21, 40, 0.95) 0%, rgba(16, 20, 26, 0.98) 50%, rgba(10, 21, 32, 0.95) 100%)',
+                    zIndex: 0
+                  }}>
+                    <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at top right, rgba(189, 162, 255, 0.15), transparent 60%)' }} />
+                    <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.12), transparent 50%)' }} />
+                    <div style={{
+                      position: 'absolute',
+                      inset: 0,
+                      opacity: 0.08,
+                      backgroundImage: 'linear-gradient(to right, #808080 1px, transparent 1px), linear-gradient(to bottom, #808080 1px, transparent 1px)',
+                      backgroundSize: '24px 24px'
+                    }} />
+                  </div>
+
+                  <div style={{
+                    position: 'relative',
+                    zIndex: 1,
+                    padding: '32px 36px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    minHeight: '320px',
+                    gap: '20px'
+                  }}>
                     <div>
-                      <div style={{
-                        width: '48px',
-                        height: '48px',
-                        borderRadius: '50%',
-                        background: 'rgba(245, 158, 11, 0.1)',
-                        border: '1px solid rgba(245, 158, 11, 0.35)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 14px auto',
-                        color: 'var(--gold)'
-                      }}>
-                        <Plus size={24} />
+                      {/* Badges d'état supérieurs */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '4px 12px',
+                          borderRadius: '4px',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.06em',
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: 'var(--primary)',
+                          border: '1px solid rgba(245, 158, 11, 0.4)'
+                        }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--gold)', boxShadow: '0 0 8px var(--gold)' }} />
+                          Univers Actif • Mis à l'Honneur
+                        </span>
+
+                        <span style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.72rem',
+                          color: 'var(--text-muted)',
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          background: 'rgba(28, 32, 38, 0.8)',
+                          border: '1px solid rgba(83, 68, 52, 0.4)'
+                        }}>
+                          {selectedTheater} • {sourcesList.length} Source(s) • {signalSheet?.personae_count ?? personae.length} Personnage(s)
+                        </span>
                       </div>
-                      <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
-                        Créer un Nouvel Univers
-                      </h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                        Téléversez un manuel de jeu, un scénario complet ou déployez un cadre de campagne sur-mesure assisté par l'IA.
+
+                      {/* Titre & Description de l'univers mis en vedette */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '10px' }}>
+                        <div style={{
+                          width: '44px',
+                          height: '44px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(245, 158, 11, 0.5)',
+                          background: 'rgba(245, 158, 11, 0.12)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--gold)'
+                        }}>
+                          <Sparkles size={24} />
+                        </div>
+                        <h2 style={{
+                          fontFamily: 'var(--font-display)',
+                          fontSize: '2.4rem',
+                          color: 'var(--text-main)',
+                          fontWeight: 700,
+                          letterSpacing: '-0.02em',
+                          lineHeight: 1.1
+                        }}>
+                          {getDisplayName(selectedTheater)}
+                        </h2>
+                      </div>
+
+                      <p style={{
+                        fontSize: '1rem',
+                        color: 'var(--text-muted)',
+                        maxWidth: '920px',
+                        lineHeight: '1.65',
+                        marginBottom: '18px'
+                      }}>
+                        {signalSheet?.agent_curator_summary || "Explorez cet univers hermétique : règles déduites de vos sources, codex indexés, personnages cloisonnés et Archiviste IA dédié."}
                       </p>
+
+                      {/* Badges de Lore Bleu Cobalt Lorekeeper */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 12px',
+                          borderRadius: '4px',
+                          background: 'rgba(30, 58, 138, 0.6)',
+                          color: 'var(--cobalt-400)',
+                          border: '1px solid rgba(59, 130, 246, 0.45)',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.74rem',
+                          fontWeight: 500,
+                          boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                        }}>
+                          <Zap size={13} color="var(--cobalt-400)" />
+                          <span>Mémoire Vectorielle 100% Hermétique</span>
+                        </span>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 12px',
+                          borderRadius: '4px',
+                          background: 'rgba(30, 58, 138, 0.6)',
+                          color: 'var(--cobalt-400)',
+                          border: '1px solid rgba(59, 130, 246, 0.45)',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.74rem',
+                          fontWeight: 500,
+                          boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                        }}>
+                          <Shield size={13} color="var(--cobalt-400)" />
+                          <span>{signalSheet?.system_preset || 'Système Déduit'}</span>
+                        </span>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '5px 12px',
+                          borderRadius: '4px',
+                          background: 'rgba(30, 58, 138, 0.6)',
+                          color: 'var(--cobalt-400)',
+                          border: '1px solid rgba(59, 130, 246, 0.45)',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.74rem',
+                          fontWeight: 500,
+                          boxShadow: '0 0 12px rgba(59, 130, 246, 0.2)'
+                        }}>
+                          <Bot size={13} color="var(--cobalt-400)" />
+                          <span>Archiviste IA Dédié</span>
+                        </span>
+                      </div>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
-                      <button style={{
-                        padding: '7px 12px',
-                        borderRadius: '6px',
-                        background: 'var(--gold)',
-                        color: '#0B0C10',
-                        fontSize: '0.78rem',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px'
-                      }}>
-                        <Upload size={13} />
-                        <span>Importer Manuel / Sources</span>
+                    {/* Boutons d'Action Principaux du Bandeau */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '18px' }}>
+                      <button
+                        onClick={() => {
+                          setCurrentView('studio');
+                          setActiveStep('signal');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 22px',
+                          borderRadius: '6px',
+                          background: 'var(--gold)',
+                          color: '#0B0C10',
+                          fontWeight: 700,
+                          fontSize: '0.9rem',
+                          boxShadow: '0 4px 16px rgba(245, 158, 11, 0.3)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <span>Ouvrir la Fiche Univers</span>
+                        <ArrowRight size={16} />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setCurrentView('studio');
+                          setActiveStep('stage');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 18px',
+                          borderRadius: '6px',
+                          background: 'rgba(30, 58, 138, 0.4)',
+                          border: '1px solid var(--border-cobalt)',
+                          color: 'var(--cobalt-400)',
+                          fontWeight: 600,
+                          fontSize: '0.86rem'
+                        }}
+                      >
+                        <Swords size={15} color="var(--cobalt-400)" />
+                        <span>Lancer Session VTT</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setCurrentView('studio');
+                          setIsDrawerOpen(true);
+                          setActiveToolTab('archivist');
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px 18px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontWeight: 600,
+                          fontSize: '0.86rem'
+                        }}
+                      >
+                        <Bot size={15} color="var(--gold)" />
+                        <span>Interroger l'Archiviste IA</span>
                       </button>
                     </div>
                   </div>
+                </section>
 
-                  {/* Cartes des Univers Définis */}
-                  {theaters
-                    .filter((th) => {
-                      if (!landingSearch) return true;
-                      const searchLower = landingSearch.toLowerCase();
-                      const name = getDisplayName(th).toLowerCase();
-                      return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
-                    })
-                    .map((th) => {
-                      const isPinned = pinnedTheaters.includes(th);
-                      const isSelected = th === selectedTheater;
-                      const summary = theatersSummaries.find((s) => s.theater_id === th);
-                      const displayName = getDisplayName(th);
-                      const icon = getTheaterIcon(th);
-                      const sourcesCount = summary?.sources_count ?? 0;
-                      const personaeCount = summary?.personae_count ?? 0;
-                      const lastDate = summary?.last_modified || 'Récemment';
+                {/* 2. SECTION BIBLIOTHÈQUE DES UNIVERS (GRILLE DE CARTES GLASSMORPHISM & ACTION RAPIDE) */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <h3 style={{
+                          fontFamily: 'var(--font-display)',
+                          fontSize: '1.5rem',
+                          fontWeight: 600,
+                          color: 'var(--text-main)',
+                          letterSpacing: '-0.015em'
+                        }}>
+                          Bibliothèque des Univers
+                        </h3>
+                        <span style={{
+                          padding: '3px 10px',
+                          borderRadius: '4px',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.74rem',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--primary)'
+                        }}>
+                          {theaters.length} Univers Définis
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                        Chaque univers cloisonne ses règles, son corpus de documents, son Archiviste IA dédié, ses personnages et ses tables VTT.
+                      </p>
+                    </div>
+                  </div>
 
-                      return (
-                        <div
-                          key={th}
-                          onClick={() => {
-                            setSelectedTheater(th);
-                            setCurrentView('studio');
-                            setActiveStep('signal');
-                          }}
-                          style={{
-                            background: 'var(--surface-low)',
-                            border: isSelected ? '1px solid rgba(245, 158, 11, 0.7)' : '1px solid rgba(160, 142, 122, 0.2)',
-                            borderRadius: '12px',
-                            padding: '20px',
+                  {/* Grille des Cartes d'Univers */}
+                  {landingViewMode === 'grid' ? (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                      gap: '20px'
+                    }}>
+                      {/* Carte Action Rapide : Créer un Nouvel Univers */}
+                      <div
+                        onClick={() => setIsWorkspaceModalOpen(true)}
+                        style={{
+                          border: '2px dashed rgba(245, 158, 11, 0.4)',
+                          borderRadius: '12px',
+                          padding: '24px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          textAlign: 'center',
+                          background: 'rgba(10, 14, 20, 0.6)',
+                          cursor: 'pointer',
+                          minHeight: '220px',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--gold)';
+                          e.currentTarget.style.background = 'rgba(245, 158, 11, 0.04)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+                          e.currentTarget.style.background = 'rgba(10, 14, 20, 0.6)';
+                        }}
+                      >
+                        <div>
+                          <div style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '50%',
+                            background: 'rgba(245, 158, 11, 0.1)',
+                            border: '1px solid rgba(245, 158, 11, 0.35)',
                             display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'space-between',
-                            minHeight: '220px',
-                            cursor: 'pointer',
-                            position: 'relative',
-                            transition: 'all 0.2s ease',
-                            boxShadow: isSelected ? '0 8px 24px rgba(245, 158, 11, 0.12)' : '0 4px 16px rgba(0,0,0,0.4)'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.borderColor = 'var(--gold)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.borderColor = isSelected ? 'rgba(245, 158, 11, 0.7)' : 'rgba(160, 142, 122, 0.2)';
-                          }}
-                        >
-                          <div>
-                            {/* Header carte */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ fontSize: '1.8rem', lineHeight: 1 }}>{icon}</span>
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto 14px auto',
+                            color: 'var(--gold)'
+                          }}>
+                            <Plus size={24} />
+                          </div>
+                          <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '6px' }}>
+                            Créer un Nouvel Univers
+                          </h4>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                            Téléversez un manuel de jeu, un scénario complet ou déployez un cadre de campagne sur-mesure assisté par l'IA.
+                          </p>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                          <button style={{
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            background: 'var(--gold)',
+                            color: '#0B0C10',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px'
+                          }}>
+                            <Upload size={13} />
+                            <span>Importer Manuel / Sources</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Cartes des Univers Définis */}
+                      {theaters
+                        .filter((th) => {
+                          if (!landingSearch) return true;
+                          const searchLower = landingSearch.toLowerCase();
+                          const name = getDisplayName(th).toLowerCase();
+                          return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                        })
+                        .map((th) => {
+                          const isPinned = pinnedTheaters.includes(th);
+                          const isSelected = th === selectedTheater;
+                          const summary = theatersSummaries.find((s) => s.theater_id === th);
+                          const displayName = getDisplayName(th);
+                          const icon = getTheaterIcon(th);
+                          const sourcesCount = summary?.sources_count ?? 0;
+                          const personaeCount = summary?.personae_count ?? 0;
+                          const lastDate = summary?.last_modified || 'Récemment';
+
+                          return (
+                            <div
+                              key={th}
+                              onClick={() => {
+                                setSelectedTheater(th);
+                                setCurrentView('studio');
+                                setActiveStep('signal');
+                              }}
+                              style={{
+                                background: 'var(--surface-low)',
+                                border: isSelected ? '1px solid rgba(245, 158, 11, 0.7)' : '1px solid rgba(160, 142, 122, 0.2)',
+                                borderRadius: '12px',
+                                padding: '20px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                minHeight: '220px',
+                                cursor: 'pointer',
+                                position: 'relative',
+                                transition: 'all 0.2s ease',
+                                boxShadow: isSelected ? '0 8px 24px rgba(245, 158, 11, 0.12)' : '0 4px 16px rgba(0,0,0,0.4)'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.borderColor = 'var(--gold)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.borderColor = isSelected ? 'rgba(245, 158, 11, 0.7)' : 'rgba(160, 142, 122, 0.2)';
+                              }}
+                            >
+                              <div>
+                                {/* Header carte */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '1.8rem', lineHeight: 1 }}>{icon}</span>
+                                    <div>
+                                      <h4 style={{
+                                        fontFamily: 'var(--font-display)',
+                                        fontSize: '1.05rem',
+                                        fontWeight: 600,
+                                        color: 'var(--text-main)',
+                                        lineHeight: 1.2
+                                      }}>
+                                        {displayName}
+                                      </h4>
+                                      <span style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-400)' }}>
+                                        {summary?.system_preset || 'Règles Déduites'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    {isPinned && <Pin size={12} color="var(--gold)" />}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuTheater(openMenuTheater === th ? null : th);
+                                      }}
+                                      style={{
+                                        padding: '4px',
+                                        borderRadius: '50%',
+                                        color: 'var(--text-dim)',
+                                        background: 'transparent'
+                                      }}
+                                    >
+                                      <MoreVertical size={14} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Menu contextuel popover de carte */}
+                                {openMenuTheater === th && (
+                                  <div
+                                    ref={menuRef}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      position: 'absolute',
+                                      right: '12px',
+                                      top: '46px',
+                                      background: 'var(--surface-container)',
+                                      border: '1px solid var(--border)',
+                                      borderRadius: '8px',
+                                      padding: '4px',
+                                      width: '140px',
+                                      boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
+                                      zIndex: 100,
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '2px'
+                                    }}
+                                  >
+                                    <button
+                                      onClick={() => {
+                                        if (isPinned) setPinnedTheaters(pinnedTheaters.filter(p => p !== th));
+                                        else setPinnedTheaters([...pinnedTheaters, th]);
+                                        setOpenMenuTheater(null);
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.8rem',
+                                        color: 'var(--text-main)',
+                                        width: '100%'
+                                      }}
+                                    >
+                                      <Pin size={13} color="var(--gold)" />
+                                      <span>{isPinned ? 'Désépingler' : 'Épingler'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setRenamingTheater(th);
+                                        setRenamedTitle(getDisplayName(th));
+                                        setOpenMenuTheater(null);
+                                      }}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.8rem',
+                                        color: 'var(--text-main)',
+                                        width: '100%'
+                                      }}
+                                    >
+                                      <Edit2 size={13} color="var(--gold)" />
+                                      <span>Renommer</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteWorkspace(th)}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.8rem',
+                                        color: 'var(--red)',
+                                        width: '100%'
+                                      }}
+                                    >
+                                      <Trash2 size={13} color="var(--red)" />
+                                      <span>Supprimer</span>
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* Description sommaire */}
+                                <p style={{
+                                  fontSize: '0.8rem',
+                                  color: 'var(--text-dim)',
+                                  lineHeight: 1.5,
+                                  marginBottom: '14px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical'
+                                }}>
+                                  {summary?.description || `Univers cloisonné avec ses règles, fiches et secrets propres.`}
+                                </p>
+                              </div>
+
+                              {/* Footer de Carte avec métadonnées chiffrées & bouton ouvrir */}
+                              <div style={{
+                                borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                                paddingTop: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                                  <span style={{ color: 'var(--cobalt-400)' }}>{sourcesCount} doc(s)</span>
+                                  <span>•</span>
+                                  <span>{personaeCount} PJ</span>
+                                </div>
+
+                                <span style={{
+                                  fontSize: '0.74rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: isSelected ? 'var(--gold)' : 'var(--text-dim)',
+                                  fontWeight: isSelected ? 700 : 400
+                                }}>
+                                  {isSelected ? 'Actif' : lastDate}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    /* Vue Liste style Cobalt Lorekeeper */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {theaters
+                        .filter((th) => {
+                          if (!landingSearch) return true;
+                          const searchLower = landingSearch.toLowerCase();
+                          const name = getDisplayName(th).toLowerCase();
+                          return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
+                        })
+                        .map((th) => {
+                          const summary = theatersSummaries.find((s) => s.theater_id === th);
+                          const displayName = getDisplayName(th);
+                          const icon = getTheaterIcon(th);
+                          const sourcesCount = summary?.sources_count ?? 0;
+                          const lastDate = summary?.last_modified || 'Récemment';
+
+                          return (
+                            <div
+                              key={th}
+                              onClick={() => {
+                                setSelectedTheater(th);
+                                setCurrentView('studio');
+                                setActiveStep('signal');
+                              }}
+                              style={{
+                                background: 'var(--surface-low)',
+                                border: '1px solid var(--border-subtle)',
+                                borderRadius: '8px',
+                                padding: '12px 20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <span style={{ fontSize: '1.4rem' }}>{icon}</span>
                                 <div>
-                                  <h4 style={{
-                                    fontFamily: 'var(--font-display)',
-                                    fontSize: '1.05rem',
-                                    fontWeight: 600,
-                                    color: 'var(--text-main)',
-                                    lineHeight: 1.2
-                                  }}>
-                                    {displayName}
-                                  </h4>
-                                  <span style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-400)' }}>
-                                    {summary?.system_preset || 'Règles Déduites'}
-                                  </span>
+                                  <div style={{ fontSize: '0.94rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName}</div>
+                                  <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                                    {summary?.system_preset || 'Système Déduit'} • {sourcesCount} document(s) canonique(s)
+                                  </div>
                                 </div>
                               </div>
 
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                {isPinned && <Pin size={12} color="var(--gold)" />}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <span style={{ fontSize: '0.76rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{lastDate}</span>
                                 <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenMenuTheater(openMenuTheater === th ? null : th);
-                                  }}
                                   style={{
-                                    padding: '4px',
-                                    borderRadius: '50%',
-                                    color: 'var(--text-dim)',
-                                    background: 'transparent'
+                                    padding: '6px 14px',
+                                    borderRadius: '6px',
+                                    background: 'rgba(30, 58, 138, 0.4)',
+                                    border: '1px solid var(--border-cobalt)',
+                                    color: 'var(--cobalt-400)',
+                                    fontSize: '0.78rem',
+                                    fontWeight: 600
                                   }}
                                 >
-                                  <MoreVertical size={14} />
+                                  Ouvrir
                                 </button>
                               </div>
                             </div>
-
-                            {/* Menu contextuel popover de carte */}
-                            {openMenuTheater === th && (
-                              <div
-                                ref={menuRef}
-                                onClick={(e) => e.stopPropagation()}
-                                style={{
-                                  position: 'absolute',
-                                  right: '12px',
-                                  top: '46px',
-                                  background: 'var(--surface-container)',
-                                  border: '1px solid var(--border)',
-                                  borderRadius: '8px',
-                                  padding: '4px',
-                                  width: '140px',
-                                  boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
-                                  zIndex: 100,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: '2px'
-                                }}
-                              >
-                                <button
-                                  onClick={() => {
-                                    if (isPinned) setPinnedTheaters(pinnedTheaters.filter(p => p !== th));
-                                    else setPinnedTheaters([...pinnedTheaters, th]);
-                                    setOpenMenuTheater(null);
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.8rem',
-                                    color: 'var(--text-main)',
-                                    width: '100%'
-                                  }}
-                                >
-                                  <Pin size={13} color="var(--gold)" />
-                                  <span>{isPinned ? 'Désépingler' : 'Épingler'}</span>
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setRenamingTheater(th);
-                                    setRenamedTitle(getDisplayName(th));
-                                    setOpenMenuTheater(null);
-                                  }}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.8rem',
-                                    color: 'var(--text-main)',
-                                    width: '100%'
-                                  }}
-                                >
-                                  <Edit2 size={13} color="var(--gold)" />
-                                  <span>Renommer</span>
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteWorkspace(th)}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    padding: '8px 12px',
-                                    borderRadius: '6px',
-                                    fontSize: '0.8rem',
-                                    color: 'var(--red)',
-                                    width: '100%'
-                                  }}
-                                >
-                                  <Trash2 size={13} color="var(--red)" />
-                                  <span>Supprimer</span>
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Description sommaire */}
-                            <p style={{
-                              fontSize: '0.8rem',
-                              color: 'var(--text-dim)',
-                              lineHeight: 1.5,
-                              marginBottom: '14px',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical'
-                            }}>
-                              {summary?.description || `Univers cloisonné avec ses règles, fiches et secrets propres.`}
-                            </p>
-                          </div>
-
-                          {/* Footer de Carte avec métadonnées chiffrées & bouton ouvrir */}
-                          <div style={{
-                            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
-                            paddingTop: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between'
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.74rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
-                              <span style={{ color: 'var(--cobalt-400)' }}>{sourcesCount} doc(s)</span>
-                              <span>•</span>
-                              <span>{personaeCount} PJ</span>
-                            </div>
-
-                            <span style={{
-                              fontSize: '0.74rem',
-                              fontFamily: 'var(--font-mono)',
-                              color: isSelected ? 'var(--gold)' : 'var(--text-dim)',
-                              fontWeight: isSelected ? 700 : 400
-                            }}>
-                              {isSelected ? 'Actif' : lastDate}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                /* Vue Liste style Cobalt Lorekeeper */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {theaters
-                    .filter((th) => {
-                      if (!landingSearch) return true;
-                      const searchLower = landingSearch.toLowerCase();
-                      const name = getDisplayName(th).toLowerCase();
-                      return name.includes(searchLower) || th.toLowerCase().includes(searchLower);
-                    })
-                    .map((th) => {
-                      const summary = theatersSummaries.find((s) => s.theater_id === th);
-                      const displayName = getDisplayName(th);
-                      const icon = getTheaterIcon(th);
-                      const sourcesCount = summary?.sources_count ?? 0;
-                      const lastDate = summary?.last_modified || 'Récemment';
 
-                      return (
-                        <div
-                          key={th}
-                          onClick={() => {
-                            setSelectedTheater(th);
-                            setCurrentView('studio');
-                            setActiveStep('signal');
-                          }}
-                          style={{
-                            background: 'var(--surface-low)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: '8px',
-                            padding: '12px 20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <span style={{ fontSize: '1.4rem' }}>{icon}</span>
-                            <div>
-                              <div style={{ fontSize: '0.94rem', fontWeight: 600, color: 'var(--text-main)' }}>{displayName}</div>
-                              <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                                {summary?.system_preset || 'Système Déduit'} • {sourcesCount} document(s) canonique(s)
-                              </div>
-                            </div>
-                          </div>
+              </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <span style={{ fontSize: '0.76rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{lastDate}</span>
-                            <button
-                              style={{
-                                padding: '6px 14px',
-                                borderRadius: '6px',
-                                background: 'rgba(30, 58, 138, 0.4)',
-                                border: '1px solid var(--border-cobalt)',
-                                color: 'var(--cobalt-400)',
-                                fontSize: '0.78rem',
-                                fontWeight: 600
-                              }}
-                            >
-                              Ouvrir
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
-          </div>
-
-                </>
-              ) : currentView === 'settings' ? (
-                <WorkflowStudioModal
-                  displayMode="page"
-                  isOpen={true}
-                  onClose={() => setCurrentView(previousView)}
-                  theaterId={selectedTheater}
-                  theaterName={getDisplayName(selectedTheater)}
-                  theaters={theaters.map((id) => ({ id, name: getDisplayName(id) }))}
-                  onSelectTheater={(th) => setSelectedTheater(th)}
-                  availableModels={availableLlmModels}
-                  onConfigSaved={() => loadTheaterAll(selectedTheater)}
-                  onPendingApprovalsChange={setPendingApprovalsCount}
-                />
-              ) : (
-                <>
+            </>
+          ) : currentView === 'settings' ? (
+            <WorkflowStudioModal
+              displayMode="page"
+              isOpen={true}
+              onClose={() => setCurrentView(previousView)}
+              theaterId={selectedTheater}
+              theaterName={getDisplayName(selectedTheater)}
+              theaters={theaters.map((id) => ({ id, name: getDisplayName(id) }))}
+              onSelectTheater={(th) => setSelectedTheater(th)}
+              availableModels={availableLlmModels}
+              onConfigSaved={() => loadTheaterAll(selectedTheater)}
+              onPendingApprovalsChange={setPendingApprovalsCount}
+            />
+          ) : (
+            <>
 
 
               {/* ÉTAPE 1 : FICHE DE PRÉSENTATION UNIVERS — RÉSUMÉ ARCHIVISTE & 4 SECTIONS EMPILÉES */}
@@ -3624,13 +3678,16 @@ export default function App() {
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileInputChange}
+                        disabled={isUploadingSource}
                         multiple
                         accept=".md,.txt,.json,.yaml,.yml,.pdf"
                         style={{ display: 'none' }}
                       />
 
                       <button
-                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                        disabled={isUploadingSource}
+                        onClick={() => { if (!isUploadingSource) fileInputRef.current?.click(); }}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -3641,15 +3698,19 @@ export default function App() {
                           border: '1px solid var(--border-gold)',
                           color: 'var(--gold)',
                           fontWeight: 600,
-                          fontSize: '0.85rem'
+                          fontSize: '0.85rem',
+                          opacity: isUploadingSource ? 0.5 : 1,
+                          cursor: isUploadingSource ? 'not-allowed' : 'pointer'
                         }}
                       >
-                        <HardDrive size={16} />
+                        <HardDrive size={16} aria-hidden="true" />
                         <span>Sélectionner sur le disque</span>
                       </button>
 
                       <button
-                        onClick={() => setIsAddingSource(!isAddingSource)}
+                        type="button"
+                        disabled={isUploadingSource}
+                        onClick={() => { if (!isUploadingSource) setIsAddingSource(!isAddingSource); }}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -3659,10 +3720,12 @@ export default function App() {
                           background: 'var(--surface-elevated)',
                           border: '1px solid var(--border)',
                           color: 'var(--text-main)',
-                          fontSize: '0.85rem'
+                          fontSize: '0.85rem',
+                          opacity: isUploadingSource ? 0.5 : 1,
+                          cursor: isUploadingSource ? 'not-allowed' : 'pointer'
                         }}
                       >
-                        <Upload size={14} />
+                        <Upload size={14} aria-hidden="true" />
                         <span>Saisir / Coller</span>
                       </button>
 
@@ -3688,70 +3751,126 @@ export default function App() {
 
                   {/* Message de notification d'upload */}
                   {sourceUploadFeedback && (
-                    <div style={{
-                      padding: '12px 16px',
-                      borderRadius: '8px',
-                      background: 'var(--gold-surface)',
-                      border: '1px solid var(--border-gold)',
-                      color: 'var(--gold)',
-                      fontSize: '0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px'
-                    }}>
-                      <CheckCircle2 size={16} />
+                    <div
+                      role="status"
+                      style={{
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        background: 'var(--gold-surface)',
+                        border: '1px solid var(--border-gold)',
+                        color: 'var(--gold)',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }}
+                    >
+                      <CheckCircle2 size={16} aria-hidden="true" />
                       <span>{sourceUploadFeedback}</span>
                     </div>
                   )}
 
                   {/* Zone principale moderne Drag & Drop et Sélection Disque */}
                   <div
-                    onDragOver={(e) => { e.preventDefault(); setIsDraggingSource(true); }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (!isUploadingSource) setIsDraggingSource(true);
+                    }}
                     onDragLeave={() => setIsDraggingSource(false)}
                     onDrop={handleDropFiles}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => { if (!isUploadingSource) fileInputRef.current?.click(); }}
                     style={{
-                      border: isDraggingSource ? '2px dashed var(--gold)' : '2px dashed var(--border-gold)',
-                      background: isDraggingSource ? 'rgba(212, 175, 55, 0.08)' : 'var(--surface)',
+                      border: isUploadingSource
+                        ? '2px solid var(--gold)'
+                        : isDraggingSource
+                          ? '2px dashed var(--gold)'
+                          : '2px dashed var(--border-gold)',
+                      background: isUploadingSource
+                        ? 'rgba(245, 158, 11, 0.08)'
+                        : isDraggingSource
+                          ? 'rgba(212, 175, 55, 0.08)'
+                          : 'var(--surface)',
                       borderRadius: '14px',
                       padding: '36px 24px',
                       textAlign: 'center',
-                      cursor: 'pointer',
+                      cursor: isUploadingSource ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s ease',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '12px'
+                      gap: '14px'
                     }}
                   >
-                    <div style={{
-                      width: '54px',
-                      height: '54px',
-                      borderRadius: '50%',
-                      background: 'var(--gold-surface)',
-                      border: '1px solid var(--border-gold)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--gold)'
-                    }}>
-                      <Upload size={24} />
-                    </div>
+                    {isUploadingSource ? (
+                      <div
+                        style={{
+                          width: '100%',
+                          maxWidth: '520px',
+                          padding: '18px 22px',
+                          borderRadius: '12px',
+                          background: 'rgba(11, 12, 16, 0.85)',
+                          border: '1px solid var(--border-gold)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '12px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--gold)', fontSize: '1.05rem', fontWeight: 700 }}>
+                          <Sparkles size={20} className="spin" aria-hidden="true" />
+                          <span>Importation et indexation canonique en cours…</span>
+                        </div>
 
-                    <div>
-                      <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                        Glissez-déposez vos fichiers ici, ou cliquez pour parcourir votre disque
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: '4px' }}>
-                        Formats supportés : <strong>.md, .txt, .json, .yaml, .pdf</strong> (règles officielles, manuels, contextes)
-                      </div>
-                    </div>
+                        {uploadProgress && (
+                          <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
+                            Fichier {uploadProgress.current} / {uploadProgress.total} : <strong>{uploadProgress.currentFileName}</strong>
+                            {' · '}
+                            {uploadProgress.phase === 'reading'
+                              ? 'Préparation…'
+                              : uploadProgress.phase === 'uploading'
+                                ? (uploadProgress.percent !== null ? `Envoi ${uploadProgress.percent}%` : 'Envoi…')
+                                : 'Indexation serveur…'}
+                            {' · '}
+                            {uploadElapsedSec}s
+                          </div>
+                        )}
 
-                    {isUploadingSource && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontSize: '0.85rem' }}>
-                        <Sparkles size={16} className="spin" />
-                        <span>Indexation canonique en cours dans le bac à sable...</span>
+                        <progress
+                          value={uploadProgress?.phase === 'uploading' && uploadProgress.percent !== null ? uploadProgress.percent : undefined}
+                          max={100}
+                          aria-label="Progression de l'importation des sources"
+                          style={{ width: '100%', height: '10px', accentColor: 'var(--gold)' }}
+                        />
+
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          Ajout de nouveaux fichiers verrouillé jusqu'à la fin de l'indexation.
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <div style={{
+                          width: '54px',
+                          height: '54px',
+                          borderRadius: '50%',
+                          background: 'var(--gold-surface)',
+                          border: '1px solid var(--border-gold)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--gold)'
+                        }}>
+                          <Upload size={24} aria-hidden="true" />
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            Glissez-déposez vos fichiers ici, ou cliquez pour parcourir votre disque
+                          </div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)', marginTop: '4px' }}>
+                            Formats supportés : <strong>.md, .txt, .json, .yaml, .pdf</strong> (règles officielles, manuels, contextes)
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -5115,823 +5234,823 @@ export default function App() {
                 </div>
               )}
 
-  
-                </>
-              )}
-            </div>
-          </main>
+
+            </>
+          )}
+        </div>
+      </main>
 
 
-          {/* =========================================================================
+      {/* =========================================================================
           3. MODALE NOUVEL UNIVERS
          ========================================================================= */}
-          {isWorkspaceModalOpen && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Nouvel Univers de Jeu</span>
-                  <button onClick={() => setIsWorkspaceModalOpen(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
-                </div>
-
-                <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-main)', marginBottom: '6px', display: 'block', fontWeight: 500 }}>
-                      Nom de l'Univers
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Terres d'Ombre, Cyberpunk Neo-Paris..."
-                      value={newWorkspaceName}
-                      onChange={(e) => setNewWorkspaceName(e.target.value)}
-                      style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px 12px', fontSize: '0.9rem' }}
-                      autoFocus
-                      required
-                    />
-                    <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '6px', lineHeight: '1.4' }}>
-                      Le système de règles et les sources documentaires seront découverts et indexés automatiquement dès vos premiers ajouts.
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
-                    <button type="button" onClick={() => setIsWorkspaceModalOpen(false)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      Annuler
-                    </button>
-                    <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 18px', borderRadius: '6px', fontSize: '0.85rem' }}>
-                      Créer l'Univers
-                    </button>
-                  </div>
-                </form>
-              </div>
+      {isWorkspaceModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Nouvel Univers de Jeu</span>
+              <button onClick={() => setIsWorkspaceModalOpen(false)} style={{ color: 'var(--text-dim)' }}>✕</button>
             </div>
-          )}
 
-          {/* =========================================================================
-          4. MODALE DE RENOMMAGE DE L'UNIVERS
-         ========================================================================= */}
-          {renamingTheater && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-              <form onSubmit={handleRenameWorkspace} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '380px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Renommer l'Univers</span>
-
+            <form onSubmit={handleCreateWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-main)', marginBottom: '6px', display: 'block', fontWeight: 500 }}>
+                  Nom de l'Univers
+                </label>
                 <input
                   type="text"
-                  value={renamedTitle}
-                  onChange={(e) => setRenamedTitle(e.target.value)}
-                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+                  placeholder="Ex: Terres d'Ombre, Cyberpunk Neo-Paris..."
+                  value={newWorkspaceName}
+                  onChange={(e) => setNewWorkspaceName(e.target.value)}
+                  style={{ width: '100%', background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px 12px', fontSize: '0.9rem' }}
+                  autoFocus
                   required
                 />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '6px', lineHeight: '1.4' }}>
+                  Le système de règles et les sources documentaires seront découverts et indexés automatiquement dès vos premiers ajouts.
+                </div>
+              </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                  <button type="button" onClick={() => setRenamingTheater(null)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                    Annuler
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
+                <button type="button" onClick={() => setIsWorkspaceModalOpen(false)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Annuler
+                </button>
+                <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 18px', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  Créer l'Univers
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          4. MODALE DE RENOMMAGE DE L'UNIVERS
+         ========================================================================= */}
+      {renamingTheater && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <form onSubmit={handleRenameWorkspace} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', width: '380px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <span style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--gold)' }}>Renommer l'Univers</span>
+
+            <input
+              type="text"
+              value={renamedTitle}
+              onChange={(e) => setRenamedTitle(e.target.value)}
+              style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', fontSize: '0.85rem' }}
+              required
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button type="button" onClick={() => setRenamingTheater(null)} style={{ padding: '8px 14px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Annuler
+              </button>
+              <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================================================
+          5. PANNEAU "OUTILS" (AVEC OUTIL 1 : L'ARCHIVISTE)
+         ========================================================================= */}
+      {isDrawerOpen && (
+        <aside style={{
+          width: '50%',
+          flexShrink: 0,
+          background: 'var(--sidebar-bg)',
+          borderLeft: '1px solid var(--border)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 20,
+          boxShadow: '-12px 0 32px rgba(0,0,0,0.4)'
+        }}>
+          {/* En-tête du panneau Outils */}
+          <div style={{
+            height: '52px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 18px',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Database size={15} color="var(--gold)" />
+              <span style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--gold)', letterSpacing: '0.02em' }}>
+                Outils
+              </span>
+            </div>
+            <button
+              onClick={() => setIsDrawerOpen(false)}
+              style={{ color: 'var(--text-dim)', fontSize: '1.2rem', padding: '4px' }}
+              title="Fermer le panneau Outils"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Sélecteur d'outils (Onglets : 1. L'Archiviste | 2. Régie & Table) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '6px',
+            padding: '10px 14px',
+            background: 'rgba(0,0,0,0.25)',
+            borderBottom: '1px solid var(--border-subtle)'
+          }}>
+            <button
+              onClick={() => setActiveToolTab('archivist')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '7px',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                background: activeToolTab === 'archivist' ? 'var(--gold)' : 'var(--surface-elevated)',
+                color: activeToolTab === 'archivist' ? '#0B0C10' : 'var(--text-muted)',
+                border: activeToolTab === 'archivist' ? '1px solid var(--gold)' : '1px solid var(--border)',
+                fontWeight: activeToolTab === 'archivist' ? 700 : 500,
+                fontSize: '0.78rem',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <BookOpen size={14} />
+              <span>1. L'Archiviste</span>
+            </button>
+
+            <button
+              onClick={() => setActiveToolTab('regie')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '7px',
+                padding: '8px 10px',
+                borderRadius: '8px',
+                background: activeToolTab === 'regie' ? 'var(--gold)' : 'var(--surface-elevated)',
+                color: activeToolTab === 'regie' ? '#0B0C10' : 'var(--text-muted)',
+                border: activeToolTab === 'regie' ? '1px solid var(--gold)' : '1px solid var(--border)',
+                fontWeight: activeToolTab === 'regie' ? 700 : 500,
+                fontSize: '0.78rem',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Sliders size={14} />
+              <span>2. Régie & Dés</span>
+            </button>
+          </div>
+
+          {/* =====================================================================
+              OUTIL 1 : L'ARCHIVISTE (EXPLORATEUR & ASSISTANT DE SOURCES NOTEBOOKLM)
+             ===================================================================== */}
+          {activeToolTab === 'archivist' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+              {/* Sélecteur de Modèle & Paramètres LLM pour L'Archiviste */}
+              <div style={{
+                padding: '8px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: 'rgba(212, 175, 55, 0.03)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--gold)', fontWeight: 600 }}>
+                  <Bot size={13} />
+                  <span>Modèle LLM de l'Archiviste :</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'flex-end' }}>
+                  <select
+                    value={archivistSelectedModel}
+                    onChange={(e) => setArchivistSelectedModel(e.target.value)}
+                    style={{
+                      maxWidth: '240px',
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      borderRadius: '5px',
+                      padding: '3px 8px',
+                      fontSize: '0.72rem',
+                      fontFamily: 'var(--font-mono)',
+                      color: 'var(--text-main)',
+                      outline: 'none',
+                      cursor: 'pointer'
+                    }}
+                    title="Choisir le modèle d'inférence utilisé par L'Archiviste"
+                  >
+                    {availableLlmModels.length > 0 ? (
+                      availableLlmModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="mistral-small-3.2-24b-instruct-2506">mistral-small-3.2-24b-instruct-2506</option>
+                        <option value="google/gemma-4-12b-qat">google/gemma-4-12b-qat</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Section supérieure : Périmètre des Sources cochables (comme NotebookLM) */}
+              <div style={{
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--border-subtle)',
+                background: 'rgba(255,255,255,0.01)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                maxHeight: '215px',
+                overflowY: 'auto'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--gold)' }}>
+                    Sources actives ({archivistSelectedSources.length}/{sourcesList.length})
+                  </span>
+                  {sourcesList.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (archivistSelectedSources.length === sourcesList.length) {
+                          setArchivistSelectedSources([]);
+                        } else {
+                          setArchivistSelectedSources(sourcesList.map((s) => s.file_name));
+                        }
+                      }}
+                      style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textDecoration: 'underline' }}
+                    >
+                      {archivistSelectedSources.length === sourcesList.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    </button>
+                  )}
+                </div>
+
+                {sourcesList.length === 0 ? (
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    background: 'var(--surface)',
+                    border: '1px dashed var(--border)',
+                    fontSize: '0.75rem',
+                    color: 'var(--text-dim)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span>Aucune source dans cet univers.</span>
+                    <button
+                      onClick={() => setActiveStep('sources')}
+                      style={{ color: 'var(--gold)', fontWeight: 600, fontSize: '0.74rem' }}
+                    >
+                      + Importer
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {sourcesList.map((src) => {
+                      const isChecked = archivistSelectedSources.includes(src.file_name);
+                      const badge = getSourceTypeBadge(src.file_type);
+                      return (
+                        <div
+                          key={src.file_name}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            padding: '6px 10px',
+                            borderRadius: '7px',
+                            background: isChecked ? 'rgba(212, 175, 55, 0.06)' : 'var(--surface)',
+                            border: isChecked ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
+                            fontSize: '0.76rem'
+                          }}
+                        >
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, cursor: 'pointer', overflow: 'hidden' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleArchivistSource(src.file_name)}
+                              style={{ accentColor: '#D4AF37', cursor: 'pointer' }}
+                            />
+                            <span style={{
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: badge.bg,
+                              color: badge.color,
+                              border: `1px solid ${badge.border}`,
+                              flexShrink: 0
+                            }}>
+                              {badge.label}
+                            </span>
+                            <span style={{
+                              color: isChecked ? 'var(--text-main)' : 'var(--text-dim)',
+                              fontWeight: isChecked ? 600 : 400,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }} title={src.file_name}>
+                              {src.file_name}
+                            </span>
+                          </label>
+
+                          <button
+                            onClick={() => handleViewSource(src.file_name)}
+                            style={{
+                              padding: '3px 7px',
+                              borderRadius: '4px',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--gold)',
+                              fontSize: '0.68rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              flexShrink: 0
+                            }}
+                            title="Ouvrir le document complet dans la visionneuse"
+                          >
+                            <Eye size={11} />
+                            <span>Lire</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Aperçu rapide d'extrait cité (Source Guide / Passage mis en évidence façon NotebookLM) */}
+              {archivistPreviewCitation && (
+                <div style={{
+                  margin: '10px 14px 0 14px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'rgba(212, 175, 55, 0.07)',
+                  border: '1px solid var(--border-gold)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gold)' }}>
+                      <FileText size={12} />
+                      <span>Extrait Source : {archivistPreviewCitation.source_file}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        onClick={() => handleNavigateToSource(archivistPreviewCitation.source_file, archivistPreviewCitation.line_number)}
+                        style={{
+                          fontSize: '0.68rem',
+                          color: '#0B0C10',
+                          background: 'var(--gold)',
+                          fontWeight: 700,
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <span>Ouvrir à la ligne {archivistPreviewCitation.line_number || 1}</span>
+                        <ExternalLink size={9} />
+                      </button>
+                      <button
+                        onClick={() => setArchivistPreviewCitation(null)}
+                        style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-serif)',
+                    fontSize: '0.8rem',
+                    lineHeight: '1.5',
+                    color: 'var(--text-main)',
+                    maxHeight: '95px',
+                    overflowY: 'auto',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    background: 'rgba(0,0,0,0.35)'
+                  }}>
+                    « {archivistPreviewCitation.snippet} »
+                  </div>
+                </div>
+              )}
+
+              {/* Fil de discussion & réponses sourcées de L'Archiviste */}
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                {archivistMessages.length === 0 ? (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border-subtle)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontWeight: 700, fontSize: '0.85rem' }}>
+                      <Sparkles size={15} />
+                      <span>Guide de Sources — L'Archiviste</span>
+                    </div>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                      Interrogez vos manuels, règles et notes comme dans <strong>NotebookLM</strong>. L'Archiviste répond exclusivement à partir des sources cochées ci-dessus, cite chaque passage et déclare formellement le silence documentaire si un fait n'est pas attesté.
+                    </p>
+
+                    {/* Questions rapides suggérées */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                        Questions suggérées sur vos sources :
+                      </span>
+                      {[
+                        'Résume les règles principales et le cadre de cet univers',
+                        'Quels sont les lieux, alliances ou factions mentionnés ?',
+                        'Comment fonctionne la magie ou la résolution des actions ?',
+                        'Quels sont les secrets ou menaces majeures ?'
+                      ].map((q, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleAskArchivistTool(q)}
+                          style={{
+                            textAlign: 'left',
+                            padding: '7px 10px',
+                            borderRadius: '7px',
+                            background: 'var(--surface-elevated)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                            fontSize: '0.75rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px'
+                          }}
+                        >
+                          <span>{q}</span>
+                          <ArrowRight size={12} color="var(--gold)" style={{ flexShrink: 0 }} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  archivistMessages.map((msg, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        alignSelf: msg.role === 'user' ? 'flex-end' : 'stretch',
+                        maxWidth: msg.role === 'user' ? '88%' : '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        background: msg.role === 'user'
+                          ? 'rgba(212, 175, 55, 0.14)'
+                          : msg.documentarySilence
+                            ? 'rgba(255, 159, 28, 0.06)'
+                            : 'var(--surface)',
+                        border: msg.role === 'user'
+                          ? '1px solid var(--border-gold)'
+                          : msg.documentarySilence
+                            ? '1px solid rgba(255, 159, 28, 0.35)'
+                            : '1px solid var(--border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                        <span style={{ fontWeight: 700, color: msg.role === 'user' ? 'var(--gold)' : 'var(--amber)' }}>
+                          {msg.role === 'user' ? 'Vous' : "📜 L'Archiviste (Corpus Canonique)"}
+                        </span>
+                        <span>{msg.timestamp}</span>
+                      </div>
+
+                      <div style={{
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: '0.94rem',
+                        lineHeight: '1.6',
+                        color: 'var(--text-main)',
+                        whiteSpace: 'pre-line'
+                      }}>
+                        {msg.text}
+                      </div>
+
+                      {/* Badges de citations cliquables (façon NotebookLM) */}
+                      {msg.citations && msg.citations.length > 0 && (
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '5px',
+                          paddingTop: '6px',
+                          borderTop: '1px solid var(--border-subtle)'
+                        }}>
+                          <span style={{ fontSize: '0.67rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase' }}>
+                            Passages cités ({msg.citations.length}) — Cliquer pour inspecter :
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                            {msg.citations.map((cit, cIdx) => (
+                              <div key={cIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <button
+                                  onClick={() => setArchivistPreviewCitation(cit)}
+                                  style={{
+                                    fontSize: '0.68rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    background: 'var(--gold-surface)',
+                                    border: '1px solid var(--border-gold)',
+                                    color: 'var(--gold)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  title={cit.snippet}
+                                >
+                                  <span>[{cIdx + 1}] {cit.source_file.replace('00_sources/', '')}{cit.line_number ? ` (l. ${cit.line_number})` : ''}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleNavigateToSource(cit.source_file, cit.line_number)}
+                                  style={{
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    background: 'var(--surface-elevated)',
+                                    border: '1px solid var(--border)',
+                                    color: 'var(--text-muted)'
+                                  }}
+                                  title={`Ouvrir le document à la ligne ${cit.line_number || 1}`}
+                                >
+                                  <ExternalLink size={10} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Traçabilité Agent : Modèle utilisé, Prompt transmis et Outils invoqués */}
+                      {msg.role === 'archivist' && (msg.modelUsed || msg.promptUsed) && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingTop: '6px',
+                          marginTop: '2px',
+                          borderTop: '1px dashed var(--border-subtle)',
+                          fontSize: '0.68rem',
+                          color: 'var(--text-dim)'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                            <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Modèle :</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                              {msg.modelUsed || 'Défaut'}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setInspectingPrompt({
+                              prompt: msg.promptUsed || 'Aucun prompt enregistré',
+                              tools: msg.toolsUsed || ['RAG Hybride Tantivy BM25', 'Knowledge Graph SQLite', 'Section Scanner'],
+                              model: msg.modelUsed
+                            })}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'var(--surface-elevated)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--gold)',
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                            title="Inspecter le prompt et les outils sollicités par l'Archiviste"
+                          >
+                            <Terminal size={11} />
+                            <span>Voir Prompt & Outils</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+
+                {isArchivistThinking && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--gold)', fontStyle: 'italic', padding: '6px 10px' }}>
+                    L'Archiviste inspecte les sources sélectionnées...
+                  </div>
+                )}
+              </div>
+
+              {/* Barre de saisie de question à L'Archiviste */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAskArchivistTool();
+                }}
+                style={{
+                  padding: '12px 14px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}
+              >
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={archivistChatInput}
+                    onChange={(e) => setArchivistChatInput(e.target.value)}
+                    placeholder="Poser une question sur les sources cochées..."
+                    style={{
+                      flex: 1,
+                      background: 'var(--surface-elevated)',
+                      border: '1px solid var(--border-gold)',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '0.82rem',
+                      color: 'var(--text-main)'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!archivistChatInput.trim() || isArchivistThinking}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: archivistChatInput.trim() ? 'var(--gold)' : 'var(--surface-elevated)',
+                      color: archivistChatInput.trim() ? '#0B0C10' : 'var(--text-dim)',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title="Interroger L'Archiviste"
+                  >
+                    <Send size={14} />
                   </button>
-                  <button type="submit" style={{ background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>
-                    Enregistrer
-                  </button>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
+                  <span>{archivistSelectedSources.length} source(s) active(s) dans le contexte</span>
+                  {archivistMessages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setArchivistMessages([]);
+                        setArchivistPreviewCitation(null);
+                      }}
+                      style={{ color: 'var(--text-dim)', textDecoration: 'underline' }}
+                    >
+                      Effacer la conversation
+                    </button>
+                  )}
                 </div>
               </form>
             </div>
           )}
 
-          {/* =========================================================================
-          5. PANNEAU "OUTILS" (AVEC OUTIL 1 : L'ARCHIVISTE)
-         ========================================================================= */}
-          {isDrawerOpen && (
-            <aside style={{
-              width: '50%',
-              flexShrink: 0,
-              background: 'var(--sidebar-bg)',
-              borderLeft: '1px solid var(--border)',
-              display: 'flex',
-              flexDirection: 'column',
-              zIndex: 20,
-              boxShadow: '-12px 0 32px rgba(0,0,0,0.4)'
-            }}>
-              {/* En-tête du panneau Outils */}
-              <div style={{
-                height: '52px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '0 18px',
-                borderBottom: '1px solid var(--border-subtle)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Database size={15} color="var(--gold)" />
-                  <span style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--gold)', letterSpacing: '0.02em' }}>
-                    Outils
-                  </span>
-                </div>
-                <button
-                  onClick={() => setIsDrawerOpen(false)}
-                  style={{ color: 'var(--text-dim)', fontSize: '1.2rem', padding: '4px' }}
-                  title="Fermer le panneau Outils"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Sélecteur d'outils (Onglets : 1. L'Archiviste | 2. Régie & Table) */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '6px',
-                padding: '10px 14px',
-                background: 'rgba(0,0,0,0.25)',
-                borderBottom: '1px solid var(--border-subtle)'
-              }}>
-                <button
-                  onClick={() => setActiveToolTab('archivist')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '7px',
-                    padding: '8px 10px',
-                    borderRadius: '8px',
-                    background: activeToolTab === 'archivist' ? 'var(--gold)' : 'var(--surface-elevated)',
-                    color: activeToolTab === 'archivist' ? '#0B0C10' : 'var(--text-muted)',
-                    border: activeToolTab === 'archivist' ? '1px solid var(--gold)' : '1px solid var(--border)',
-                    fontWeight: activeToolTab === 'archivist' ? 700 : 500,
-                    fontSize: '0.78rem',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <BookOpen size={14} />
-                  <span>1. L'Archiviste</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveToolTab('regie')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '7px',
-                    padding: '8px 10px',
-                    borderRadius: '8px',
-                    background: activeToolTab === 'regie' ? 'var(--gold)' : 'var(--surface-elevated)',
-                    color: activeToolTab === 'regie' ? '#0B0C10' : 'var(--text-muted)',
-                    border: activeToolTab === 'regie' ? '1px solid var(--gold)' : '1px solid var(--border)',
-                    fontWeight: activeToolTab === 'regie' ? 700 : 500,
-                    fontSize: '0.78rem',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Sliders size={14} />
-                  <span>2. Régie & Dés</span>
-                </button>
-              </div>
-
-              {/* =====================================================================
-              OUTIL 1 : L'ARCHIVISTE (EXPLORATEUR & ASSISTANT DE SOURCES NOTEBOOKLM)
-             ===================================================================== */}
-              {activeToolTab === 'archivist' && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-                  {/* Sélecteur de Modèle & Paramètres LLM pour L'Archiviste */}
-                  <div style={{
-                    padding: '8px 16px',
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'rgba(212, 175, 55, 0.03)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', color: 'var(--gold)', fontWeight: 600 }}>
-                      <Bot size={13} />
-                      <span>Modèle LLM de l'Archiviste :</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, justifyContent: 'flex-end' }}>
-                      <select
-                        value={archivistSelectedModel}
-                        onChange={(e) => setArchivistSelectedModel(e.target.value)}
-                        style={{
-                          maxWidth: '240px',
-                          background: 'var(--surface-elevated)',
-                          border: '1px solid var(--border-gold)',
-                          borderRadius: '5px',
-                          padding: '3px 8px',
-                          fontSize: '0.72rem',
-                          fontFamily: 'var(--font-mono)',
-                          color: 'var(--text-main)',
-                          outline: 'none',
-                          cursor: 'pointer'
-                        }}
-                        title="Choisir le modèle d'inférence utilisé par L'Archiviste"
-                      >
-                        {availableLlmModels.length > 0 ? (
-                          availableLlmModels.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))
-                        ) : (
-                          <>
-                            <option value="mistral-small-3.2-24b-instruct-2506">mistral-small-3.2-24b-instruct-2506</option>
-                            <option value="google/gemma-4-12b-qat">google/gemma-4-12b-qat</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Section supérieure : Périmètre des Sources cochables (comme NotebookLM) */}
-                  <div style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid var(--border-subtle)',
-                    background: 'rgba(255,255,255,0.01)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    maxHeight: '215px',
-                    overflowY: 'auto'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--gold)' }}>
-                        Sources actives ({archivistSelectedSources.length}/{sourcesList.length})
-                      </span>
-                      {sourcesList.length > 0 && (
-                        <button
-                          onClick={() => {
-                            if (archivistSelectedSources.length === sourcesList.length) {
-                              setArchivistSelectedSources([]);
-                            } else {
-                              setArchivistSelectedSources(sourcesList.map((s) => s.file_name));
-                            }
-                          }}
-                          style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textDecoration: 'underline' }}
-                        >
-                          {archivistSelectedSources.length === sourcesList.length ? 'Tout désélectionner' : 'Tout sélectionner'}
-                        </button>
-                      )}
-                    </div>
-
-                    {sourcesList.length === 0 ? (
-                      <div style={{
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        background: 'var(--surface)',
-                        border: '1px dashed var(--border)',
-                        fontSize: '0.75rem',
-                        color: 'var(--text-dim)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between'
-                      }}>
-                        <span>Aucune source dans cet univers.</span>
-                        <button
-                          onClick={() => setActiveStep('sources')}
-                          style={{ color: 'var(--gold)', fontWeight: 600, fontSize: '0.74rem' }}
-                        >
-                          + Importer
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {sourcesList.map((src) => {
-                          const isChecked = archivistSelectedSources.includes(src.file_name);
-                          const badge = getSourceTypeBadge(src.file_type);
-                          return (
-                            <div
-                              key={src.file_name}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '8px',
-                                padding: '6px 10px',
-                                borderRadius: '7px',
-                                background: isChecked ? 'rgba(212, 175, 55, 0.06)' : 'var(--surface)',
-                                border: isChecked ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
-                                fontSize: '0.76rem'
-                              }}
-                            >
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, cursor: 'pointer', overflow: 'hidden' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => toggleArchivistSource(src.file_name)}
-                                  style={{ accentColor: '#D4AF37', cursor: 'pointer' }}
-                                />
-                                <span style={{
-                                  fontSize: '0.62rem',
-                                  fontWeight: 700,
-                                  padding: '1px 5px',
-                                  borderRadius: '4px',
-                                  background: badge.bg,
-                                  color: badge.color,
-                                  border: `1px solid ${badge.border}`,
-                                  flexShrink: 0
-                                }}>
-                                  {badge.label}
-                                </span>
-                                <span style={{
-                                  color: isChecked ? 'var(--text-main)' : 'var(--text-dim)',
-                                  fontWeight: isChecked ? 600 : 400,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis'
-                                }} title={src.file_name}>
-                                  {src.file_name}
-                                </span>
-                              </label>
-
-                              <button
-                                onClick={() => handleViewSource(src.file_name)}
-                                style={{
-                                  padding: '3px 7px',
-                                  borderRadius: '4px',
-                                  background: 'var(--surface-elevated)',
-                                  border: '1px solid var(--border)',
-                                  color: 'var(--gold)',
-                                  fontSize: '0.68rem',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  flexShrink: 0
-                                }}
-                                title="Ouvrir le document complet dans la visionneuse"
-                              >
-                                <Eye size={11} />
-                                <span>Lire</span>
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Aperçu rapide d'extrait cité (Source Guide / Passage mis en évidence façon NotebookLM) */}
-                  {archivistPreviewCitation && (
-                    <div style={{
-                      margin: '10px 14px 0 14px',
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      background: 'rgba(212, 175, 55, 0.07)',
-                      border: '1px solid var(--border-gold)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--gold)' }}>
-                          <FileText size={12} />
-                          <span>Extrait Source : {archivistPreviewCitation.source_file}</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <button
-                            onClick={() => handleNavigateToSource(archivistPreviewCitation.source_file, archivistPreviewCitation.line_number)}
-                            style={{
-                              fontSize: '0.68rem',
-                              color: '#0B0C10',
-                              background: 'var(--gold)',
-                              fontWeight: 700,
-                              padding: '2px 7px',
-                              borderRadius: '4px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}
-                          >
-                            <span>Ouvrir à la ligne {archivistPreviewCitation.line_number || 1}</span>
-                            <ExternalLink size={9} />
-                          </button>
-                          <button
-                            onClick={() => setArchivistPreviewCitation(null)}
-                            style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{
-                        fontFamily: 'var(--font-serif)',
-                        fontSize: '0.8rem',
-                        lineHeight: '1.5',
-                        color: 'var(--text-main)',
-                        maxHeight: '95px',
-                        overflowY: 'auto',
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        background: 'rgba(0,0,0,0.35)'
-                      }}>
-                        « {archivistPreviewCitation.snippet} »
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Fil de discussion & réponses sourcées de L'Archiviste */}
-                  <div style={{
-                    flex: 1,
-                    overflowY: 'auto',
-                    padding: '14px 16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px'
-                  }}>
-                    {archivistMessages.length === 0 ? (
-                      <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px',
-                        padding: '12px',
-                        borderRadius: '10px',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border-subtle)'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)', fontWeight: 700, fontSize: '0.85rem' }}>
-                          <Sparkles size={15} />
-                          <span>Guide de Sources — L'Archiviste</span>
-                        </div>
-                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-                          Interrogez vos manuels, règles et notes comme dans <strong>NotebookLM</strong>. L'Archiviste répond exclusivement à partir des sources cochées ci-dessus, cite chaque passage et déclare formellement le silence documentaire si un fait n'est pas attesté.
-                        </p>
-
-                        {/* Questions rapides suggérées */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
-                            Questions suggérées sur vos sources :
-                          </span>
-                          {[
-                            'Résume les règles principales et le cadre de cet univers',
-                            'Quels sont les lieux, alliances ou factions mentionnés ?',
-                            'Comment fonctionne la magie ou la résolution des actions ?',
-                            'Quels sont les secrets ou menaces majeures ?'
-                          ].map((q, idx) => (
-                            <button
-                              key={idx}
-                              onClick={() => handleAskArchivistTool(q)}
-                              style={{
-                                textAlign: 'left',
-                                padding: '7px 10px',
-                                borderRadius: '7px',
-                                background: 'var(--surface-elevated)',
-                                border: '1px solid var(--border)',
-                                color: 'var(--text-main)',
-                                fontSize: '0.75rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '8px'
-                              }}
-                            >
-                              <span>{q}</span>
-                              <ArrowRight size={12} color="var(--gold)" style={{ flexShrink: 0 }} />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      archivistMessages.map((msg, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            alignSelf: msg.role === 'user' ? 'flex-end' : 'stretch',
-                            maxWidth: msg.role === 'user' ? '88%' : '100%',
-                            padding: '11px 14px',
-                            borderRadius: '10px',
-                            background: msg.role === 'user'
-                              ? 'rgba(212, 175, 55, 0.14)'
-                              : msg.documentarySilence
-                                ? 'rgba(255, 159, 28, 0.06)'
-                                : 'var(--surface)',
-                            border: msg.role === 'user'
-                              ? '1px solid var(--border-gold)'
-                              : msg.documentarySilence
-                                ? '1px solid rgba(255, 159, 28, 0.35)'
-                                : '1px solid var(--border)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '8px'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
-                            <span style={{ fontWeight: 700, color: msg.role === 'user' ? 'var(--gold)' : 'var(--amber)' }}>
-                              {msg.role === 'user' ? 'Vous' : "📜 L'Archiviste (Corpus Canonique)"}
-                            </span>
-                            <span>{msg.timestamp}</span>
-                          </div>
-
-                          <div style={{
-                            fontFamily: 'var(--font-ui)',
-                            fontSize: '0.94rem',
-                            lineHeight: '1.6',
-                            color: 'var(--text-main)',
-                            whiteSpace: 'pre-line'
-                          }}>
-                            {msg.text}
-                          </div>
-
-                          {/* Badges de citations cliquables (façon NotebookLM) */}
-                          {msg.citations && msg.citations.length > 0 && (
-                            <div style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '5px',
-                              paddingTop: '6px',
-                              borderTop: '1px solid var(--border-subtle)'
-                            }}>
-                              <span style={{ fontSize: '0.67rem', color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase' }}>
-                                Passages cités ({msg.citations.length}) — Cliquer pour inspecter :
-                              </span>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                                {msg.citations.map((cit, cIdx) => (
-                                  <div key={cIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                    <button
-                                      onClick={() => setArchivistPreviewCitation(cit)}
-                                      style={{
-                                        fontSize: '0.68rem',
-                                        fontFamily: 'var(--font-mono)',
-                                        padding: '2px 7px',
-                                        borderRadius: '4px',
-                                        background: 'var(--gold-surface)',
-                                        border: '1px solid var(--border-gold)',
-                                        color: 'var(--gold)',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px'
-                                      }}
-                                      title={cit.snippet}
-                                    >
-                                      <span>[{cIdx + 1}] {cit.source_file.replace('00_sources/', '')}{cit.line_number ? ` (l. ${cit.line_number})` : ''}</span>
-                                    </button>
-                                    <button
-                                      onClick={() => handleNavigateToSource(cit.source_file, cit.line_number)}
-                                      style={{
-                                        padding: '2px 5px',
-                                        borderRadius: '4px',
-                                        background: 'var(--surface-elevated)',
-                                        border: '1px solid var(--border)',
-                                        color: 'var(--text-muted)'
-                                      }}
-                                      title={`Ouvrir le document à la ligne ${cit.line_number || 1}`}
-                                    >
-                                      <ExternalLink size={10} />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Traçabilité Agent : Modèle utilisé, Prompt transmis et Outils invoqués */}
-                          {msg.role === 'archivist' && (msg.modelUsed || msg.promptUsed) && (
-                            <div style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              paddingTop: '6px',
-                              marginTop: '2px',
-                              borderTop: '1px dashed var(--border-subtle)',
-                              fontSize: '0.68rem',
-                              color: 'var(--text-dim)'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-                                <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Modèle :</span>
-                                <span style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                                  {msg.modelUsed || 'Défaut'}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setInspectingPrompt({
-                                  prompt: msg.promptUsed || 'Aucun prompt enregistré',
-                                  tools: msg.toolsUsed || ['RAG Hybride Tantivy BM25', 'Knowledge Graph SQLite', 'Section Scanner'],
-                                  model: msg.modelUsed
-                                })}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  background: 'var(--surface-elevated)',
-                                  border: '1px solid var(--border)',
-                                  color: 'var(--gold)',
-                                  fontSize: '0.68rem',
-                                  fontWeight: 600,
-                                  cursor: 'pointer'
-                                }}
-                                title="Inspecter le prompt et les outils sollicités par l'Archiviste"
-                              >
-                                <Terminal size={11} />
-                                <span>Voir Prompt & Outils</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))
-                    )}
-
-                    {isArchivistThinking && (
-                      <div style={{ fontSize: '0.78rem', color: 'var(--gold)', fontStyle: 'italic', padding: '6px 10px' }}>
-                        L'Archiviste inspecte les sources sélectionnées...
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Barre de saisie de question à L'Archiviste */}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleAskArchivistTool();
-                    }}
-                    style={{
-                      padding: '12px 14px',
-                      borderTop: '1px solid var(--border)',
-                      background: 'var(--surface)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        value={archivistChatInput}
-                        onChange={(e) => setArchivistChatInput(e.target.value)}
-                        placeholder="Poser une question sur les sources cochées..."
-                        style={{
-                          flex: 1,
-                          background: 'var(--surface-elevated)',
-                          border: '1px solid var(--border-gold)',
-                          borderRadius: '8px',
-                          padding: '8px 12px',
-                          fontSize: '0.82rem',
-                          color: 'var(--text-main)'
-                        }}
-                      />
-                      <button
-                        type="submit"
-                        disabled={!archivistChatInput.trim() || isArchivistThinking}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          background: archivistChatInput.trim() ? 'var(--gold)' : 'var(--surface-elevated)',
-                          color: archivistChatInput.trim() ? '#0B0C10' : 'var(--text-dim)',
-                          fontWeight: 700,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                        title="Interroger L'Archiviste"
-                      >
-                        <Send size={14} />
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: 'var(--text-dim)' }}>
-                      <span>{archivistSelectedSources.length} source(s) active(s) dans le contexte</span>
-                      {archivistMessages.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setArchivistMessages([]);
-                            setArchivistPreviewCitation(null);
-                          }}
-                          style={{ color: 'var(--text-dim)', textDecoration: 'underline' }}
-                        >
-                          Effacer la conversation
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </div>
-              )}
-
-              {/* =====================================================================
+          {/* =====================================================================
               OUTIL 2 : RÉGIE, DÉ PHYSIQUE, SAUVEGARDES & PERSONNAGES
              ===================================================================== */}
-              {activeToolTab === 'regie' && (
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {activeToolTab === 'regie' && (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-                  {/* Dé Physique Override */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                      Dé Physique (Saisie Manuelle)
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Ex: 17"
-                      value={physicalDiceOverride}
-                      onChange={(e) => setPhysicalDiceOverride(e.target.value)}
-                      style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '0.8rem' }}
-                    />
-                  </div>
+              {/* Dé Physique Override */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Dé Physique (Saisie Manuelle)
+                </span>
+                <input
+                  type="text"
+                  placeholder="Ex: 17"
+                  value={physicalDiceOverride}
+                  onChange={(e) => setPhysicalDiceOverride(e.target.value)}
+                  style={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '0.8rem' }}
+                />
+              </div>
 
-                  {/* Sauvegardes / Snapshots */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                        Sauvegardes ({snapshots.length})
-                      </span>
-                      <button
-                        onClick={async () => {
-                          await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message: `Sauvegarde ${new Date().toLocaleTimeString()}` })
-                          });
-                          loadTheaterAll(selectedTheater);
-                        }}
-                        style={{ fontSize: '0.7rem', color: 'var(--gold)' }}
+              {/* Sauvegardes / Snapshots */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Sauvegardes ({snapshots.length})
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await fetch(`/api/theaters/${selectedTheater}/snapshots`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: `Sauvegarde ${new Date().toLocaleTimeString()}` })
+                      });
+                      loadTheaterAll(selectedTheater);
+                    }}
+                    style={{ fontSize: '0.7rem', color: 'var(--gold)' }}
+                  >
+                    + Créer
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {snapshots.slice(0, 4).map((s, idx) => (
+                    <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>{s.message}</div>
+                      <div style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{s.commit_hash.slice(0, 7)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Personnages */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Personnages ({personae.length})
+                  </span>
+                  <button
+                    onClick={async () => {
+                      const name = prompt("Nom du nouveau personnage :");
+                      if (!name || !name.trim()) return;
+                      const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+                      const res = await fetch(`/api/theaters/${selectedTheater}/personae`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          id,
+                          name: name.trim(),
+                          system: signalSheet?.system_preset || 'Generic'
+                        })
+                      });
+                      if (res.ok) loadTheaterAll(selectedTheater);
+                    }}
+                    style={{ fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 600 }}
+                  >
+                    + Ajouter
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {personae.map((p, idx) => (
+                    <div key={idx} style={{
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      fontSize: '0.75rem',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div
+                        onClick={() => handleNavigateToSource(`03_personae/${p.id}.persona.json`)}
+                        style={{ cursor: 'pointer', flex: 1 }}
+                        title="Consulter la fiche du personnage"
                       >
-                        + Créer
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      {snapshots.slice(0, 4).map((s, idx) => (
-                        <div key={idx} style={{ padding: '6px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.02)', fontSize: '0.75rem', border: '1px solid var(--border-subtle)' }}>
-                          <div style={{ color: 'var(--text-main)', fontWeight: 500 }}>{s.message}</div>
-                          <div style={{ color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{s.commit_hash.slice(0, 7)}</div>
+                        <div style={{ color: 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span>{p.name}</span>
+                          <ExternalLink size={9} color="var(--text-dim)" />
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                        <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>{p.id}</div>
+                      </div>
 
-                  {/* Personnages */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-dim)' }}>
-                        Personnages ({personae.length})
-                      </span>
                       <button
                         onClick={async () => {
-                          const name = prompt("Nom du nouveau personnage :");
-                          if (!name || !name.trim()) return;
-                          const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
-                          const res = await fetch(`/api/theaters/${selectedTheater}/personae`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              id,
-                              name: name.trim(),
-                              system: signalSheet?.system_preset || 'Generic'
-                            })
+                          if (!confirm(`Supprimer le personnage "${p.name}" ?`)) return;
+                          const res = await fetch(`/api/theaters/${selectedTheater}/personae/${encodeURIComponent(p.id)}`, {
+                            method: 'DELETE'
                           });
                           if (res.ok) loadTheaterAll(selectedTheater);
                         }}
-                        style={{ fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 600 }}
+                        style={{
+                          padding: '4px',
+                          borderRadius: '4px',
+                          color: 'var(--text-dim)',
+                          background: 'transparent'
+                        }}
+                        title="Supprimer ce personnage"
                       >
-                        + Ajouter
+                        <Trash2 size={13} />
                       </button>
                     </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      {personae.map((p, idx) => (
-                        <div key={idx} style={{
-                          padding: '8px 10px',
-                          borderRadius: '6px',
-                          background: 'rgba(255, 255, 255, 0.02)',
-                          fontSize: '0.75rem',
-                          border: '1px solid var(--border-subtle)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
-                        }}>
-                          <div
-                            onClick={() => handleNavigateToSource(`03_personae/${p.id}.persona.json`)}
-                            style={{ cursor: 'pointer', flex: 1 }}
-                            title="Consulter la fiche du personnage"
-                          >
-                            <div style={{ color: 'var(--gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span>{p.name}</span>
-                              <ExternalLink size={9} color="var(--text-dim)" />
-                            </div>
-                            <div style={{ color: 'var(--text-dim)', fontSize: '0.7rem', fontFamily: 'var(--font-mono)' }}>{p.id}</div>
-                          </div>
-
-                          <button
-                            onClick={async () => {
-                              if (!confirm(`Supprimer le personnage "${p.name}" ?`)) return;
-                              const res = await fetch(`/api/theaters/${selectedTheater}/personae/${encodeURIComponent(p.id)}`, {
-                                method: 'DELETE'
-                              });
-                              if (res.ok) loadTheaterAll(selectedTheater);
-                            }}
-                            style={{
-                              padding: '4px',
-                              borderRadius: '4px',
-                              color: 'var(--text-dim)',
-                              background: 'transparent'
-                            }}
-                            title="Supprimer ce personnage"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
+                  ))}
                 </div>
-              )}
+              </div>
 
-            </aside>
+            </div>
           )}
+
+        </aside>
+      )}
 
 
       {/* Modale de consultation d'une source canonique plein écran / grande largeur */}
