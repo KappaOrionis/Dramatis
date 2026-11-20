@@ -3,6 +3,7 @@ use std::time::Instant;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use dramatis_core::SourceTagRegistry;
 use dramatis_ingest::{
     ExcelTableIngester, FormulaTranspiler, HierarchicalChunker, MarkdownDocParser, PdfDocParser,
     SourceHasher,
@@ -65,18 +66,41 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
         .get("source_path")
         .and_then(|v| v.as_str());
 
+    let explicit_tags: Option<Vec<String>> = ctx
+        .input_payload
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str())
+                .map(SourceTagRegistry::normalize_tag_id)
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty());
+
     let mut steps = Vec::new();
 
-    // Step 1: Format detection
+    // Step 1: Format detection & semantic tag inference
     let t1 = Instant::now();
     let detected_format = detect_format(&file_name, explicit_type);
+    let resolved_tags = explicit_tags.unwrap_or_else(|| {
+        SourceTagRegistry::infer_tags_for_source(&file_name, Some(content_text))
+    });
     steps.push(StepTrace {
         step_id: "format_detection".to_string(),
         name: "Détection du format & routage".to_string(),
         status: "completed".to_string(),
         duration_ms: t1.elapsed().as_millis() as u64,
-        summary: format!("Fichier `{}` routé vers le pipeline `{}`", file_name, detected_format),
-        metadata: json!({ "file_name": file_name, "detected_format": detected_format }),
+        summary: format!(
+            "Fichier `{}` routé vers `{}` | tags={:?}",
+            file_name, detected_format, resolved_tags
+        ),
+        metadata: json!({
+            "file_name": file_name,
+            "detected_format": detected_format,
+            "tags": resolved_tags
+        }),
     });
 
     // Step 2: SHA-256 deduplication check
@@ -210,15 +234,20 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
     let t4 = Instant::now();
     let sync_status = if ctx.dry_run {
         "simulated_dry_run"
-    } else if detected_format == "markdown" && !content_text.is_empty() {
-        let target = ctx.theater_root.join("00_sources").join(&file_name);
-        if let Some(parent) = target.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(&target, content_text);
-        "ingested"
     } else {
-        "indexed"
+        if detected_format == "markdown" && !content_text.is_empty() {
+            let target = ctx.theater_root.join("00_sources").join(&file_name);
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&target, content_text);
+        }
+        let _ = SourceTagRegistry::set_file_tags(&ctx.theater_root, &file_name, resolved_tags.clone());
+        if detected_format == "markdown" && !content_text.is_empty() {
+            "ingested"
+        } else {
+            "indexed"
+        }
     };
 
     steps.push(StepTrace {
@@ -233,6 +262,7 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
     let output = json!({
         "file_name": file_name,
         "detected_format": detected_format,
+        "tags": resolved_tags,
         "sha256": sha256,
         "sync_status": sync_status,
         "sections_count": sections_count,

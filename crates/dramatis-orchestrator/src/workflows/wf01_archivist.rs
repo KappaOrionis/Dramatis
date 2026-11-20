@@ -3,7 +3,7 @@ use std::time::Instant;
 use serde::Deserialize;
 use serde_json::json;
 
-use dramatis_core::EpistemicFilter;
+use dramatis_core::{EpistemicFilter, Role, SourceTagRegistry, SourceTagsCatalog};
 use dramatis_gateway::{ChatMessage, SouffleurClient};
 use dramatis_ingest::PdfDocParser;
 use dramatis_rag::{ArchivistAgent, Citation, HybridSearchEngine, LexiconEngine};
@@ -19,6 +19,7 @@ use crate::workflows::{elapsed_ms, WorkflowOutcome, WorkflowRuntimeInput};
 pub struct ArchivistInput {
     pub query: String,
     pub selected_sources: Option<Vec<String>>,
+    pub required_tags: Option<Vec<String>>,
     pub preferred_model: Option<String>,
 }
 
@@ -33,6 +34,7 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
         "Tantivy BM25 Full-text Search".to_string(),
         "Knowledge Graph RRF".to_string(),
         "Section Scanner with Line-accurate Indexing".to_string(),
+        "Source Tag Semantic Router".to_string(),
     ];
 
     let top_k = ctx
@@ -107,8 +109,10 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
     query_terms.sort();
     query_terms.dedup();
 
-    // Step 2: Hybrid Retrieval + Epistemic Sanitization + Section Scan
+    // Step 2: Hybrid Retrieval + Epistemic Sanitization + Tag Semantic Routing + Section Scan
     let t2 = Instant::now();
+    let tag_catalog = SourceTagRegistry::load(&ctx.theater_root);
+    let intent_tags = detect_query_intent_tags(&input.query);
     let mut citations: Vec<Citation> = Vec::new();
     let mut matched_excerpts: Vec<String> = Vec::new();
 
@@ -118,6 +122,18 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
             if let Ok(hits) = engine.search_hybrid(&input.query, None, top_k.max(4)) {
                 for h in hits {
                     let norm_src = normalize_path(&h.source_path);
+                    let src_file_name = std::path::Path::new(&norm_src)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&norm_src);
+                    if !source_allowed_by_tags(
+                        &tag_catalog,
+                        ctx.role,
+                        src_file_name,
+                        &input.required_tags,
+                    ) {
+                        continue;
+                    }
                     if let Some(allowed) = &input.selected_sources {
                         if !allowed.is_empty()
                             && !allowed.iter().any(|src| {
@@ -155,6 +171,9 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
                 "00_sources",
                 ctx.role,
                 &input.selected_sources,
+                &input.required_tags,
+                Some(&tag_catalog),
+                &intent_tags,
                 &query_terms,
                 has_maisons_query,
                 has_combat_query,
@@ -461,12 +480,82 @@ fn build_offline_grounded_summary(excerpts: &[String], target_lang: &str) -> Str
     }
 }
 
+fn detect_query_intent_tags(query: &str) -> Vec<&'static str> {
+    let q = query.to_lowercase();
+    let mut tags = Vec::new();
+    if ["regle", "règle", "rule", "combat", "jet", "bonus", "malus", "diffic", "mechanic"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("rules");
+    }
+    if ["sort", "spell", "grimoire", "equipement", "équipement", "arme", "armure", "artefact", "gear"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("grimoire_gear");
+    }
+    if ["pnj", "personnage", "mage", "mages", "magi", "character", "npc", "profil"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("characters");
+    }
+    if ["scenario", "scénario", "aventure", "adventure", "intrigue", "campagne", "calebais"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("scenario");
+    }
+    if ["maison", "house", "histoire", "history", "lore", "univers", "background", "ordre", "hermes"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("background");
+    }
+    if ["fiche", "feuille", "sheet", "formulaire"]
+        .iter()
+        .any(|kw| q.contains(kw))
+    {
+        tags.push("sheets_aids");
+    }
+    tags
+}
+
+fn source_allowed_by_tags(
+    catalog: &SourceTagsCatalog,
+    role: Role,
+    file_name: &str,
+    required_tags: &Option<Vec<String>>,
+) -> bool {
+    if role == Role::Player && SourceTagRegistry::is_gm_only_file(catalog, file_name) {
+        return false;
+    }
+    if let Some(req) = required_tags {
+        if !req.is_empty() {
+            let file_tags = SourceTagRegistry::tags_for_file(catalog, file_name);
+            let normalized_req: Vec<String> = req
+                .iter()
+                .map(|r| SourceTagRegistry::normalize_tag_id(r))
+                .filter(|r| !r.is_empty())
+                .collect();
+            if !normalized_req.is_empty() && !file_tags.iter().any(|t| normalized_req.contains(t)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 fn scan_directory_snippets(
     dir: &std::path::Path,
     prefix: &str,
-    role: dramatis_core::Role,
+    role: Role,
     selected_sources: &Option<Vec<String>>,
+    required_tags: &Option<Vec<String>>,
+    tag_catalog: Option<&SourceTagsCatalog>,
+    intent_tags: &[&str],
     query_terms: &[String],
     has_maisons_query: bool,
     has_combat_query: bool,
@@ -486,7 +575,16 @@ fn scan_directory_snippets(
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
+        if file_name.starts_with('.') {
+            continue;
+        }
         let rel_path = format!("{}/{}", prefix, file_name);
+
+        if let Some(catalog) = tag_catalog {
+            if !source_allowed_by_tags(catalog, role, &file_name, required_tags) {
+                continue;
+            }
+        }
 
         if let Some(allowed) = selected_sources {
             if !allowed.is_empty()
@@ -514,6 +612,7 @@ fn scan_directory_snippets(
 
         if let Some(raw_content) = file_content {
             let content = EpistemicFilter::sanitize_markdown(&raw_content, role, None);
+            let before_len = out.len();
             extract_matching_paragraphs(
                 &content,
                 &rel_path,
@@ -523,13 +622,30 @@ fn scan_directory_snippets(
                 skip_frontmatter,
                 out,
             );
+            if let Some(catalog) = tag_catalog {
+                let file_tags = SourceTagRegistry::tags_for_file(catalog, &file_name);
+                let overlap = intent_tags
+                    .iter()
+                    .filter(|it| file_tags.iter().any(|ft| ft == **it))
+                    .count();
+                let is_sheet_only = file_tags.iter().any(|t| t == "sheets_aids")
+                    && !intent_tags.contains(&"sheets_aids");
+                for item in &mut out[before_len..] {
+                    if overlap > 0 {
+                        item.0 += overlap * 4;
+                    }
+                    if is_sheet_only {
+                        item.0 = (item.0 / 2).max(1);
+                    }
+                }
+            }
         }
     }
 }
 
 fn scan_wiki_snippets(
     wiki_dir: &std::path::Path,
-    role: dramatis_core::Role,
+    role: Role,
     selected_sources: &Option<Vec<String>>,
     query_terms: &[String],
     out: &mut Vec<(usize, String, Option<usize>, String)>,
@@ -546,6 +662,9 @@ fn scan_wiki_snippets(
                 &prefix,
                 role,
                 selected_sources,
+                &None,
+                None,
+                &[],
                 query_terms,
                 false,
                 false,

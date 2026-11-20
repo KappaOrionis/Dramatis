@@ -30,6 +30,7 @@ use dramatis_core::{
     persona::{HealthMonitor, PersonaState},
     psyche::{NegotiationLimits, PsycheProfile, VoiceConfig},
     snapshot::TheaterSnapshotManager,
+    source_tags::{SourceTagRegistry, TagDefinition},
     theater::{TheaterManifest, TheaterWorkspace},
 };
 use dramatis_ingest::{
@@ -424,6 +425,8 @@ pub struct UploadSourceRequest {
     pub file_name: String,
     pub content: String,
     pub is_base64: Option<bool>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -433,6 +436,7 @@ pub struct UploadSourceResponse {
     pub size_bytes: usize,
     pub sections_indexed: usize,
     pub resolution: String,
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -652,12 +656,22 @@ async fn upload_source_file_handler(
         }
     }
 
+    let initial_tags = payload
+        .tags
+        .as_ref()
+        .filter(|v| !v.is_empty())
+        .cloned()
+        .unwrap_or_else(|| SourceTagRegistry::infer_tags_for_source(safe_file_name, Some(&text_content)));
+    let saved_tags = SourceTagRegistry::set_file_tags(&theater_path, safe_file_name, initial_tags)
+        .unwrap_or_default();
+
     Ok(Json(UploadSourceResponse {
         file_name: safe_file_name.to_string(),
         relative_path: rel_path,
         size_bytes: bytes.len(),
         sections_indexed: if sections.is_empty() { 1 } else { sections.len() },
         resolution: resolution_label,
+        tags: saved_tags,
     }))
 }
 
@@ -750,6 +764,7 @@ pub struct SourceFileEntry {
     pub relative_path: String,
     pub size_bytes: u64,
     pub file_type: String,
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -775,6 +790,7 @@ async fn list_sources_handler(
 ) -> Result<Json<Vec<SourceFileEntry>>, StatusCode> {
     let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
     let sources_dir = theater_path.join("00_sources");
+    let tag_catalog = SourceTagRegistry::load(&theater_path);
     let mut files = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&sources_dir) {
@@ -782,15 +798,20 @@ async fn list_sources_handler(
             let path = entry.path();
             if path.is_file() {
                 let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("source").to_string();
+                if file_name.starts_with('.') {
+                    continue;
+                }
                 let file_type = path.extension().and_then(|e| e.to_str()).unwrap_or("raw").to_string();
                 let metadata = path.metadata().ok();
                 let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
+                let tags = SourceTagRegistry::tags_for_file(&tag_catalog, &file_name);
 
                 files.push(SourceFileEntry {
                     file_name: file_name.clone(),
                     relative_path: format!("00_sources/{}", file_name),
                     size_bytes,
                     file_type,
+                    tags,
                 });
             }
         }
@@ -871,7 +892,85 @@ async fn delete_source_file_handler(
     }
 
     std::fs::remove_file(&file_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let _ = SourceTagRegistry::remove_file_entry(&theater_path, &file_name);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct SourceTagsResponse {
+    pub tags: Vec<TagDefinition>,
+    pub file_tags: HashMap<String, Vec<String>>,
+}
+
+#[derive(Deserialize)]
+pub struct SetFileTagsRequest {
+    pub tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct SetFileTagsResponse {
+    pub file_name: String,
+    pub tags: Vec<String>,
+}
+
+async fn list_source_tags_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<SourceTagsResponse>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+    let catalog = SourceTagRegistry::load(&theater_path);
+    Ok(Json(SourceTagsResponse {
+        tags: SourceTagRegistry::all_tag_definitions(&catalog),
+        file_tags: catalog.file_tags,
+    }))
+}
+
+async fn upsert_custom_source_tag_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<TagDefinition>,
+) -> Result<Json<SourceTagsResponse>, (StatusCode, String)> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Theater not found".to_string()))?;
+    let catalog = SourceTagRegistry::upsert_custom_tag(&theater_path, payload)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(SourceTagsResponse {
+        tags: SourceTagRegistry::all_tag_definitions(&catalog),
+        file_tags: catalog.file_tags,
+    }))
+}
+
+async fn delete_custom_source_tag_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, tag_id)): Path<(String, String)>,
+) -> Result<Json<SourceTagsResponse>, (StatusCode, String)> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Theater not found".to_string()))?;
+    let catalog = SourceTagRegistry::delete_custom_tag(&theater_path, &tag_id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(SourceTagsResponse {
+        tags: SourceTagRegistry::all_tag_definitions(&catalog),
+        file_tags: catalog.file_tags,
+    }))
+}
+
+async fn update_source_file_tags_handler(
+    State(state): State<Arc<AppState>>,
+    Path((id, file_name)): Path<(String, String)>,
+    Json(payload): Json<SetFileTagsRequest>,
+) -> Result<Json<SetFileTagsResponse>, (StatusCode, String)> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let _ws = TheaterWorkspace::open(&theater_path)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Theater not found".to_string()))?;
+    let saved = SourceTagRegistry::set_file_tags(&theater_path, &file_name, payload.tags)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(SetFileTagsResponse {
+        file_name,
+        tags: saved,
+    }))
 }
 
 async fn delete_wiki_note_handler(
@@ -1509,7 +1608,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
         .route("/api/theaters/{id}/sources/content", get(get_source_content_handler))
         .route("/api/theaters/{id}/sources/{file_name}", axum::routing::delete(delete_source_file_handler))
+        .route("/api/theaters/{id}/sources/{file_name}/tags", axum::routing::put(update_source_file_tags_handler))
         .route("/api/theaters/{id}/sources/raw/{file_name}", get(get_source_raw_file_handler))
+        .route("/api/theaters/{id}/source-tags", get(list_source_tags_handler).post(upsert_custom_source_tag_handler))
+        .route("/api/theaters/{id}/source-tags/{tag_id}", axum::routing::delete(delete_custom_source_tag_handler))
         .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler

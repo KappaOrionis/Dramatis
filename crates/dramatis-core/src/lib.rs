@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod persona;
 pub mod psyche;
 pub mod snapshot;
+pub mod source_tags;
 pub mod theater;
 pub mod watcher;
 
@@ -25,5 +26,6 @@ pub use mcp::{McpRegistry, McpToolSpec};
 pub use persona::{AbilityScore, HealthMonitor, PersonaState};
 pub use psyche::{NegotiationLimits, PsycheError, PsycheProfile, VoiceConfig};
 pub use snapshot::{SnapshotError, TheaterSnapshotManager};
+pub use source_tags::{SourceTagRegistry, SourceTagsCatalog, TagDefinition};
 pub use theater::{TheaterError, TheaterManifest, TheaterWorkspace};
 pub use watcher::{TheaterObsidianWatcher, WatcherError};

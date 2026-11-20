@@ -44,8 +44,19 @@ import {
   PanelLeftOpen,
   ArrowLeft,
   Library,
+  Tag,
 } from 'lucide-react';
 import { WorkflowStudioModal } from './components/WorkflowStudioModal';
+import {
+  type UiLocale,
+  SUPPORTED_LOCALES,
+  type TagDefinition,
+  TAG_COLOR_STYLES,
+  getTagLabel,
+  getTagStyle,
+  toEnglishSnakeCase,
+  t,
+} from './i18n';
 
 // Logo officiel Dramatis : Le Masque Dual (Narration vs Machina & Étoile Céleste)
 function DramatisLogo({ size = 22 }: { size?: number }) {
@@ -100,6 +111,7 @@ interface SourceFileEntry {
   relative_path: string;
   size_bytes: number;
   file_type: string;
+  tags?: string[];
 }
 
 interface TheaterSignalSheet {
@@ -211,7 +223,18 @@ export default function App() {
   const [sourceUploadFeedback, setSourceUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Tri, filtrage et consultation des sources
+  // Tri, filtrage, tags sémantiques multi-langues et consultation des sources
+  const [uiLocale, setUiLocale] = useState<UiLocale>('fr');
+  const [sourceTagDefinitions, setSourceTagDefinitions] = useState<TagDefinition[]>([]);
+  const [sourceTagFilter, setSourceTagFilter] = useState<string>('all');
+  const [editingTagsFileName, setEditingTagsFileName] = useState<string | null>(null);
+  const [isTagManagerOpen, setIsTagManagerOpen] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState('');
+  const [newTagId, setNewTagId] = useState('');
+  const [newTagColor, setNewTagColor] = useState<string>('cobalt');
+  const [newTagGmOnly, setNewTagGmOnly] = useState(false);
+  const [newTagWorkflows, setNewTagWorkflows] = useState<string[]>(['WF-01']);
+  const [tagManagerError, setTagManagerError] = useState<string | null>(null);
   const [sourceSortOrder, setSourceSortOrder] = useState<'custom' | 'name-asc' | 'name-desc' | 'type-asc' | 'size-desc' | 'size-asc'>('custom');
   const [customSourceOrder, setCustomSourceOrder] = useState<string[]>([]);
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
@@ -324,7 +347,7 @@ export default function App() {
 
   const loadTheaterAll = async (theaterId: string) => {
     try {
-      const [sigRes, srcRes, wikiRes, snapRes, persRes, logsRes, detailsRes, aprRes] = await Promise.all([
+      const [sigRes, srcRes, wikiRes, snapRes, persRes, logsRes, detailsRes, aprRes, tagsRes] = await Promise.all([
         fetch(`/api/theaters/${theaterId}/signal-sheet`),
         fetch(`/api/theaters/${theaterId}/sources`),
         fetch(`/api/theaters/${theaterId}/wiki`),
@@ -333,9 +356,16 @@ export default function App() {
         fetch(`/api/theaters/${theaterId}/stage/logs`),
         fetch(`/api/theaters/${theaterId}`),
         fetch(`/api/theaters/${theaterId}/orchestrator/approvals?status=pending`).catch(() => null),
+        fetch(`/api/theaters/${theaterId}/source-tags`).catch(() => null),
       ]);
 
       if (sigRes.ok) setSignalSheet(await sigRes.json());
+      if (tagsRes && tagsRes.ok) {
+        const tagPayload = await tagsRes.json();
+        if (Array.isArray(tagPayload?.tags)) {
+          setSourceTagDefinitions(tagPayload.tags);
+        }
+      }
       if (srcRes.ok) {
         const fetchedSources: SourceFileEntry[] = await srcRes.json();
         setSourcesList(fetchedSources);
@@ -623,10 +653,117 @@ export default function App() {
     });
   };
 
+  const handleToggleSourceTag = async (fileName: string, tagId: string) => {
+    const targetSrc = sourcesList.find((s) => s.file_name === fileName);
+    const currentTags = targetSrc?.tags || [];
+    const nextTags = currentTags.includes(tagId)
+      ? currentTags.filter((x) => x !== tagId)
+      : [...currentTags, tagId];
+
+    // Optimistic update
+    setSourcesList((prev) =>
+      prev.map((s) => (s.file_name === fileName ? { ...s, tags: nextTags } : s)),
+    );
+
+    try {
+      const res = await fetch(
+        `/api/theaters/${selectedTheater}/sources/${encodeURIComponent(fileName)}/tags`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: nextTags }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setSourcesList((prev) =>
+          prev.map((s) => (s.file_name === fileName ? { ...s, tags: data.tags } : s)),
+        );
+      }
+    } catch (e) {
+      console.error('Failed updating document tags:', e);
+    }
+  };
+
+  const handleSaveCustomTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTagManagerError(null);
+    const trimmedLabel = newTagLabel.trim();
+    const rawId = (newTagId.trim() || toEnglishSnakeCase(trimmedLabel)).trim();
+    const normalizedId = toEnglishSnakeCase(rawId);
+    if (!trimmedLabel || !normalizedId) {
+      setTagManagerError('Veuillez saisir un nom et un identifiant technique valide.');
+      return;
+    }
+
+    const payload: TagDefinition = {
+      id: normalizedId,
+      is_builtin: false,
+      color: newTagColor,
+      labels: {
+        [uiLocale]: trimmedLabel,
+        en: trimmedLabel,
+        fr: trimmedLabel,
+      },
+      target_workflows: newTagWorkflows.length > 0 ? newTagWorkflows : ['WF-01'],
+      gm_only: newTagGmOnly,
+    };
+
+    try {
+      const res = await fetch(`/api/theaters/${selectedTheater}/source-tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.tags)) {
+          setSourceTagDefinitions(data.tags);
+        }
+        setNewTagLabel('');
+        setNewTagId('');
+        setNewTagGmOnly(false);
+        setNewTagWorkflows(['WF-01']);
+      } else {
+        setTagManagerError(await res.text());
+      }
+    } catch {
+      setTagManagerError('Erreur réseau lors de la création du tag.');
+    }
+  };
+
+  const handleDeleteCustomTag = async (tagId: string) => {
+    try {
+      const res = await fetch(
+        `/api/theaters/${selectedTheater}/source-tags/${encodeURIComponent(tagId)}`,
+        { method: 'DELETE' },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.tags)) {
+          setSourceTagDefinitions(data.tags);
+        }
+        setSourcesList((prev) =>
+          prev.map((s) => ({
+            ...s,
+            tags: (s.tags || []).filter((id) => id !== tagId),
+          })),
+        );
+        if (sourceTagFilter === tagId) setSourceTagFilter('all');
+      }
+    } catch (e) {
+      console.error('Failed deleting custom tag:', e);
+    }
+  };
+
   const sortedAndFilteredSources = [...sourcesList]
     .filter((src) => {
-      if (sourceTypeFilter === 'all') return true;
-      return src.file_type.toLowerCase() === sourceTypeFilter.toLowerCase();
+      const typeOk =
+        sourceTypeFilter === 'all' ||
+        src.file_type.toLowerCase() === sourceTypeFilter.toLowerCase();
+      const tagOk =
+        sourceTagFilter === 'all' || (src.tags || []).includes(sourceTagFilter);
+      return typeOk && tagOk;
     })
     .sort((a, b) => {
       switch (sourceSortOrder) {
@@ -1855,6 +1992,30 @@ export default function App() {
                   </>
                 ) : null}
 
+                {/* Sélecteur i18n (FR / EN / ES / DE / PT) */}
+                <select
+                  value={uiLocale}
+                  onChange={(e) => setUiLocale(e.target.value as UiLocale)}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: '6px',
+                    background: 'var(--surface-container-high)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-main)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                  title="Langue de l'interface & des tags"
+                >
+                  {SUPPORTED_LOCALES.map((loc) => (
+                    <option key={loc.code} value={loc.code} style={{ background: '#10141a', color: '#f1f5f9' }}>
+                      {loc.label}
+                    </option>
+                  ))}
+                </select>
+
                 {/* Contrôle du Son : Ambiance active */}
                 <button
                   style={{
@@ -2985,6 +3146,31 @@ export default function App() {
                                   <span>•</span>
                                   <span>{(src.size_bytes / 1024).toFixed(1) + ' KB'}</span>
                                 </div>
+                                {src.tags && src.tags.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '8px' }}>
+                                    {src.tags.map((tid) => {
+                                      const def = sourceTagDefinitions.find((d) => d.id === tid);
+                                      const st = getTagStyle(def);
+                                      return (
+                                        <span
+                                          key={tid}
+                                          style={{
+                                            fontSize: '0.7rem',
+                                            fontWeight: 600,
+                                            padding: '2px 7px',
+                                            borderRadius: '9999px',
+                                            background: st.bg,
+                                            border: `1px solid ${st.border}`,
+                                            color: st.text,
+                                            whiteSpace: 'nowrap'
+                                          }}
+                                        >
+                                          {getTagLabel(def, tid, uiLocale)}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ))
@@ -3517,11 +3703,103 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Barre de filtrage sémantique multi-tags + gestionnaire */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    background: 'var(--surface-container-lowest)',
+                    border: '1px solid var(--border-subtle)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: '5px', marginRight: '4px' }}>
+                        <Tag size={13} color="var(--cobalt-light)" />
+                        <span>{t(uiLocale, 'tagFilterLabel')}</span>
+                      </span>
+
+                      <button
+                        onClick={() => setSourceTagFilter('all')}
+                        style={{
+                          fontSize: '0.74rem',
+                          padding: '4px 10px',
+                          borderRadius: '9999px',
+                          background: sourceTagFilter === 'all' ? 'rgba(59, 130, 246, 0.22)' : 'transparent',
+                          border: sourceTagFilter === 'all' ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid var(--border)',
+                          color: sourceTagFilter === 'all' ? 'var(--cobalt-light)' : 'var(--text-muted)',
+                          fontWeight: sourceTagFilter === 'all' ? 700 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {t(uiLocale, 'allTags')}
+                      </button>
+
+                      {sourceTagDefinitions.map((def) => {
+                        const count = sourcesList.filter((s) => (s.tags || []).includes(def.id)).length;
+                        const active = sourceTagFilter === def.id;
+                        const st = getTagStyle(def);
+                        return (
+                          <button
+                            key={def.id}
+                            onClick={() => setSourceTagFilter(active ? 'all' : def.id)}
+                            style={{
+                              fontSize: '0.74rem',
+                              padding: '4px 10px',
+                              borderRadius: '9999px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              background: active ? st.bg : 'rgba(255, 255, 255, 0.02)',
+                              border: `1px solid ${active ? st.border : 'var(--border-subtle)'}`,
+                              color: active ? st.text : 'var(--text-muted)',
+                              fontWeight: active ? 700 : 500,
+                              cursor: 'pointer'
+                            }}
+                            title={`ID: ${def.id} • Workflows: ${def.target_workflows.join(', ')}`}
+                          >
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: st.dot }} />
+                            <span>{getTagLabel(def, def.id, uiLocale)}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', opacity: 0.85 }}>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setTagManagerError(null);
+                        setIsTagManagerOpen(true);
+                      }}
+                      style={{
+                        fontSize: '0.76rem',
+                        padding: '5px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--surface-container-high)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--gold)',
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <Settings size={13} />
+                      <span>{t(uiLocale, 'manageTags')}</span>
+                    </button>
+                  </div>
+
                   {/* Liste des sources ou invitation */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {sortedAndFilteredSources.length > 0 ? (
                       sortedAndFilteredSources.map((src, idx) => {
                         const badge = getSourceTypeBadge(src.file_type);
+                        const isPickerOpen = editingTagsFileName === src.file_name;
+                        const fileTags = src.tags || [];
                         return (
                           <div
                             key={idx}
@@ -3534,11 +3812,12 @@ export default function App() {
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               gap: '12px',
+                              position: 'relative',
                               transition: 'border-color 0.15s ease'
                             }}
                           >
-                            {/* Infos document épurées (sans répétition inutile du chemin) */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                            {/* Infos document + pastilles sémantiques multi-tags */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
                               <div style={{
                                 width: '36px',
                                 height: '36px',
@@ -3553,12 +3832,12 @@ export default function App() {
                                 {badge.icon}
                               </div>
 
-                              <div style={{ minWidth: 0 }}>
+                              <div style={{ minWidth: 0, flex: 1 }}>
                                 <div
                                   onClick={() => handleViewSource(src.file_name)}
                                   style={{
                                     fontWeight: 600,
-                                    fontSize: '0.92rem',
+                                    fontSize: '0.94rem',
                                     color: 'var(--text-main)',
                                     cursor: 'pointer',
                                     textDecoration: 'none',
@@ -3570,10 +3849,124 @@ export default function App() {
                                 >
                                   {src.file_name}
                                 </div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', display: 'flex', gap: '8px', marginTop: '2px', alignItems: 'center' }}>
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', display: 'flex', gap: '8px', marginTop: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
                                   <span>{(src.size_bytes / 1024).toFixed(1)} KB</span>
                                   <span>•</span>
-                                  <span style={{ color: 'var(--text-muted)' }}>Canonique vérifié</span>
+                                  {fileTags.map((tid) => {
+                                    const def = sourceTagDefinitions.find((d) => d.id === tid);
+                                    const st = getTagStyle(def);
+                                    return (
+                                      <span
+                                        key={tid}
+                                        style={{
+                                          fontFamily: 'var(--font-ui)',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 600,
+                                          padding: '2px 8px',
+                                          borderRadius: '9999px',
+                                          background: st.bg,
+                                          border: `1px solid ${st.border}`,
+                                          color: st.text,
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '5px'
+                                        }}
+                                        title={`ID: ${tid}`}
+                                      >
+                                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: st.dot }} />
+                                        <span>{getTagLabel(def, tid, uiLocale)}</span>
+                                      </span>
+                                    );
+                                  })}
+
+                                  <div style={{ position: 'relative' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setEditingTagsFileName(isPickerOpen ? null : src.file_name)
+                                      }
+                                      style={{
+                                        fontFamily: 'var(--font-ui)',
+                                        fontSize: '0.71rem',
+                                        padding: '2px 8px',
+                                        borderRadius: '9999px',
+                                        background: isPickerOpen ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                                        border: '1px dashed var(--border)',
+                                        color: isPickerOpen ? 'var(--cobalt-light)' : 'var(--text-dim)',
+                                        cursor: 'pointer'
+                                      }}
+                                      title={t(uiLocale, 'selectDocTags')}
+                                    >
+                                      {t(uiLocale, 'addTagShort')}
+                                    </button>
+
+                                    {isPickerOpen && (
+                                      <div
+                                        style={{
+                                          position: 'absolute',
+                                          top: 'calc(100% + 6px)',
+                                          left: 0,
+                                          zIndex: 60,
+                                          minWidth: '240px',
+                                          background: 'var(--surface-container)',
+                                          border: '1px solid rgba(59, 130, 246, 0.45)',
+                                          borderRadius: '10px',
+                                          padding: '10px',
+                                          boxShadow: '0 16px 36px rgba(0, 0, 0, 0.85)',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: '5px',
+                                          fontFamily: 'var(--font-ui)'
+                                        }}
+                                      >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '4px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                          <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                                            {t(uiLocale, 'selectDocTags')}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingTagsFileName(null)}
+                                            style={{ color: 'var(--text-dim)', fontSize: '0.76rem', padding: '0 4px' }}
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                        {sourceTagDefinitions.map((def) => {
+                                          const checked = fileTags.includes(def.id);
+                                          const st = getTagStyle(def);
+                                          return (
+                                            <label
+                                              key={def.id}
+                                              style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: '8px',
+                                                padding: '5px 8px',
+                                                borderRadius: '6px',
+                                                background: checked ? st.bg : 'transparent',
+                                                cursor: 'pointer',
+                                                fontSize: '0.78rem',
+                                                color: checked ? st.text : 'var(--text-muted)'
+                                              }}
+                                            >
+                                              <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                                <input
+                                                  type="checkbox"
+                                                  checked={checked}
+                                                  onChange={() => handleToggleSourceTag(src.file_name, def.id)}
+                                                />
+                                                <span>{getTagLabel(def, def.id, uiLocale)}</span>
+                                              </span>
+                                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', opacity: 0.7 }}>
+                                                {def.id}
+                                              </span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -5787,6 +6180,269 @@ export default function App() {
               >
                 Fermer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          9. MODALE DE GESTION DES TAGS SÉMANTIQUES (CANONIQUES + PERSONNALISÉS)
+         ========================================================================= */}
+      {isTagManagerOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(5, 7, 11, 0.82)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 85,
+          padding: '16px'
+        }}>
+          <div style={{
+            width: 'min(760px, 95vw)',
+            maxHeight: '88vh',
+            background: 'var(--surface)',
+            border: '1px solid rgba(59, 130, 246, 0.4)',
+            borderRadius: '14px',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.85)'
+          }}>
+            <div style={{
+              padding: '16px 22px',
+              borderBottom: '1px solid var(--border-subtle)',
+              background: 'var(--surface-container-lowest)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Tag size={18} color="var(--cobalt-light)" />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-main)' }}>
+                    {t(uiLocale, 'tagManagerTitle')}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                    {t(uiLocale, 'tagManagerSubtitle')}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTagManagerOpen(false)}
+                style={{ padding: '6px', borderRadius: '8px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Built-in tags */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  {t(uiLocale, 'builtinTagsTitle')}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px' }}>
+                  {sourceTagDefinitions.filter((d) => d.is_builtin).map((def) => {
+                    const st = getTagStyle(def);
+                    return (
+                      <div key={def.id} style={{ padding: '9px 12px', borderRadius: '8px', background: 'var(--surface-elevated)', border: `1px solid ${st.border}`, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+                          <span style={{ fontSize: '0.84rem', fontWeight: 700, color: st.text }}>
+                            {getTagLabel(def, def.id, uiLocale)}
+                          </span>
+                          <code style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>{def.id}</code>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{def.target_workflows.join(', ')}</span>
+                          {def.gm_only && <span style={{ color: '#fca5a5' }}>{t(uiLocale, 'gmOnlyBadge')}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom user tags */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 700 }}>
+                  {t(uiLocale, 'customTagsTitle')}
+                </div>
+                {sourceTagDefinitions.filter((d) => !d.is_builtin).length === 0 ? (
+                  <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px dashed var(--border)', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
+                    {t(uiLocale, 'noCustomTags')}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {sourceTagDefinitions.filter((d) => !d.is_builtin).map((def) => {
+                      const st = getTagStyle(def);
+                      return (
+                        <div key={def.id} style={{ padding: '9px 12px', borderRadius: '8px', background: 'var(--surface-elevated)', border: `1px solid ${st.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, color: st.text, fontSize: '0.86rem' }}>
+                              {getTagLabel(def, def.id, uiLocale)}
+                            </span>
+                            <code style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>{def.id}</code>
+                            <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+                              [{def.target_workflows.join(', ')}]
+                            </span>
+                            {def.gm_only && (
+                              <span style={{ fontSize: '0.68rem', color: '#fca5a5', border: '1px solid rgba(248, 113, 113, 0.4)', borderRadius: '4px', padding: '1px 5px' }}>
+                                {t(uiLocale, 'gmOnlyBadge')}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomTag(def.id)}
+                            style={{ padding: '4px 10px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.14)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5', fontSize: '0.74rem', fontWeight: 600 }}
+                          >
+                            {t(uiLocale, 'deleteTag')}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Create custom tag form */}
+              <form
+                onSubmit={handleSaveCustomTag}
+                style={{
+                  background: 'var(--surface-container-lowest)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px'
+                }}
+              >
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--gold)' }}>
+                  {t(uiLocale, 'createTagTitle')}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                      {t(uiLocale, 'tagDisplayLabel')}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Bestiaire, Artefacts, Rumeurs..."
+                      value={newTagLabel}
+                      onChange={(e) => {
+                        setNewTagLabel(e.target.value);
+                        if (!newTagId) {
+                          // preview auto-slug in placeholder cleanly
+                        }
+                      }}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', fontSize: '0.82rem' }}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                      {t(uiLocale, 'tagTechnicalId')}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={toEnglishSnakeCase(newTagLabel) || 'bestiary_monsters'}
+                      value={newTagId}
+                      onChange={(e) => setNewTagId(e.target.value)}
+                      style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', background: 'var(--canvas)', border: '1px solid var(--border)', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--cobalt-light)' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>{t(uiLocale, 'tagColor')} :</span>
+                    {Object.entries(TAG_COLOR_STYLES).map(([colorName, st]) => (
+                      <button
+                        key={colorName}
+                        type="button"
+                        onClick={() => setNewTagColor(colorName)}
+                        style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          background: st.dot,
+                          border: newTagColor === colorName ? '2px solid #fff' : '2px solid transparent',
+                          boxShadow: newTagColor === colorName ? `0 0 0 2px ${st.border}` : 'none'
+                        }}
+                        title={colorName}
+                      />
+                    ))}
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={newTagGmOnly}
+                      onChange={(e) => setNewTagGmOnly(e.target.checked)}
+                    />
+                    <span>{t(uiLocale, 'tagGmOnly')}</span>
+                  </label>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginBottom: '6px' }}>
+                    {t(uiLocale, 'tagTargetWorkflows')}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {['WF-01', 'WF-02', 'WF-03', 'WF-04', 'WF-05', 'WF-06', 'WF-07', 'WF-08'].map((wf) => {
+                      const active = newTagWorkflows.includes(wf);
+                      return (
+                        <button
+                          key={wf}
+                          type="button"
+                          onClick={() =>
+                            setNewTagWorkflows((prev) =>
+                              prev.includes(wf) ? prev.filter((x) => x !== wf) : [...prev, wf],
+                            )
+                          }
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '0.72rem',
+                            background: active ? 'rgba(59, 130, 246, 0.22)' : 'var(--surface-elevated)',
+                            border: `1px solid ${active ? 'rgba(59, 130, 246, 0.5)' : 'var(--border)'}`,
+                            color: active ? 'var(--cobalt-light)' : 'var(--text-dim)'
+                          }}
+                        >
+                          {wf}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {tagManagerError && (
+                  <div style={{ fontSize: '0.76rem', color: '#f87171' }}>{tagManagerError}</div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsTagManagerOpen(false)}
+                    style={{ padding: '7px 14px', borderRadius: '6px', background: 'var(--surface-elevated)', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.8rem' }}
+                  >
+                    {t(uiLocale, 'close')}
+                  </button>
+                  <button
+                    type="submit"
+                    style={{ padding: '7px 16px', borderRadius: '6px', background: 'var(--gold)', color: '#0B0C10', fontWeight: 700, fontSize: '0.8rem' }}
+                  >
+                    {t(uiLocale, 'createTagSubmit')}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
