@@ -255,7 +255,8 @@ impl ModelConfig {
         lower_url.contains("127.0.0.1") || lower_url.contains("localhost")
     }
 
-    /// Applies workspace-wide provider endpoint and API key defaults when not overridden per-agent.
+    /// Applies workspace-wide provider endpoint and API key defaults for the selected provider,
+    /// overriding stale per-agent keys left over from a previous provider selection.
     pub fn apply_global_provider_defaults(&mut self, globals: &GlobalProvidersConfig) {
         let prov = self.provider.trim().to_ascii_lowercase();
         let entry = match prov.as_str() {
@@ -267,17 +268,17 @@ impl ModelConfig {
         if !entry.base_url.trim().is_empty() {
             self.base_url = entry.base_url.trim().to_string();
         }
-        if self
+        if matches!(prov.as_str(), "local_lmstudio" | "local") {
+            self.api_key = None;
+            return;
+        }
+        if let Some(global_key) = entry
             .api_key
-            .as_deref()
-            .map(|k| k.trim().is_empty())
-            .unwrap_or(true)
+            .as_ref()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
         {
-            self.api_key = entry
-                .api_key
-                .as_ref()
-                .map(|k| k.trim().to_string())
-                .filter(|k| !k.is_empty());
+            self.api_key = Some(global_key);
         }
     }
 
@@ -332,6 +333,44 @@ impl ModelConfig {
             temperature: self.temperature,
             is_local: self.is_local(),
         }
+    }
+
+    /// Resolves `fallback_model_id` against local LM Studio when primary is cloud and the fallback
+    /// model identifier does not belong to a cloud vendor prefix.
+    pub fn to_fallback_model_profile(&self, local_base_url: Option<&str>) -> ModelProfile {
+        let fallback_name = self.fallback_model_id.trim();
+        let lower = fallback_name.to_ascii_lowercase();
+        let is_cloud_vendor_model = lower.starts_with("gemini-")
+            || lower.starts_with("models/gemini")
+            || lower.starts_with("claude-")
+            || lower.starts_with("gpt-")
+            || lower.starts_with("o1-")
+            || lower.starts_with("o3-")
+            || lower.starts_with("deepseek/")
+            || lower.starts_with("anthropic/")
+            || lower.starts_with("openai/")
+            || lower.starts_with("google/")
+            || lower.starts_with("meta-llama/")
+            || lower.starts_with("mistralai/");
+
+        if !self.is_local() && !fallback_name.is_empty() && !is_cloud_vendor_model {
+            let base_url = local_base_url
+                .map(|u| u.trim().trim_end_matches('/'))
+                .filter(|u| !u.is_empty())
+                .unwrap_or("http://127.0.0.1:1234/v1")
+                .to_string();
+            return ModelProfile {
+                model_name: fallback_name.to_string(),
+                base_url,
+                api_key: None,
+                max_tokens: self.max_tokens,
+                context_window: self.context_window,
+                temperature: self.temperature,
+                is_local: true,
+            };
+        }
+
+        self.to_model_profile(Some(fallback_name.to_string()))
     }
 }
 

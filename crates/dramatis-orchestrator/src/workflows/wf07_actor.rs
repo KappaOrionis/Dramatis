@@ -7,6 +7,7 @@ use dramatis_core::{EpistemicFilter, Role};
 use dramatis_gateway::{ChatMessage, SouffleurClient};
 use dramatis_stage::{AgentContextView, RealityPlane, ZoneId};
 
+use crate::config::ConfigRegistry;
 use crate::error::OrchestratorError;
 use crate::trace::StepTrace;
 use crate::workflows::{elapsed_ms, WorkflowOutcome, WorkflowRuntimeInput};
@@ -179,10 +180,14 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
     let strict_local = ctx.agent_config.effective_strict_local(theater_privacy);
     let client = SouffleurClient::new(strict_local);
     let profile = ctx.agent_config.model.to_model_profile(None);
+    let local_base_url = ctx
+        .theater_root
+        .parent()
+        .map(|wr| ConfigRegistry::load_global_providers(wr).local_lmstudio.base_url);
     let fallback_profile = ctx
         .agent_config
         .model
-        .to_model_profile(Some(ctx.agent_config.model.fallback_model_id.clone()));
+        .to_fallback_model_profile(local_base_url.as_deref());
     let model_used = Some(profile.model_name.clone());
 
     let messages = vec![

@@ -137,7 +137,16 @@ export type I18nKey =
   | 'deleteTag'
   | 'gmOnlyBadge'
   | 'close'
-  | 'selectDocTags';
+  | 'selectDocTags'
+  | 'sectionLibrary'
+  | 'sectionGmNotes'
+  | 'sectionCharacters'
+  | 'sectionVirtualTables'
+  | 'archivistSummaryBadge'
+  | 'regenerateSummary'
+  | 'generateSummary'
+  | 'generatingSummary'
+  | 'summaryStaleHint';
 
 const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
   fr: {
@@ -161,6 +170,15 @@ const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
     gmOnlyBadge: 'Secret MJ',
     close: 'Fermer',
     selectDocTags: 'Tags du document',
+    sectionLibrary: 'Bibliothèque',
+    sectionGmNotes: 'Notes du MJ',
+    sectionCharacters: 'Personnages',
+    sectionVirtualTables: 'Tables virtuelles',
+    archivistSummaryBadge: "Résumé par L'Archiviste",
+    regenerateSummary: 'Régénérer',
+    generateSummary: 'Générer le résumé',
+    generatingSummary: "L'Archiviste rédige la présentation du jeu à partir de votre bibliothèque...",
+    summaryStaleHint: 'Nouvelles sources détectées',
   },
   en: {
     allTags: 'All tags',
@@ -183,6 +201,15 @@ const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
     gmOnlyBadge: 'GM Only',
     close: 'Close',
     selectDocTags: 'Document tags',
+    sectionLibrary: 'Library',
+    sectionGmNotes: 'GM Notes',
+    sectionCharacters: 'Characters',
+    sectionVirtualTables: 'Virtual Tables',
+    archivistSummaryBadge: 'Summary by The Archivist',
+    regenerateSummary: 'Regenerate',
+    generateSummary: 'Generate summary',
+    generatingSummary: 'The Archivist is drafting the game presentation from your library...',
+    summaryStaleHint: 'New sources detected',
   },
   es: {
     allTags: 'Todas las etiquetas',
@@ -205,6 +232,15 @@ const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
     gmOnlyBadge: 'Solo DJ',
     close: 'Cerrar',
     selectDocTags: 'Etiquetas del documento',
+    sectionLibrary: 'Biblioteca',
+    sectionGmNotes: 'Notas del DJ',
+    sectionCharacters: 'Personajes',
+    sectionVirtualTables: 'Mesas virtuales',
+    archivistSummaryBadge: 'Resumen por El Archivista',
+    regenerateSummary: 'Regenerar',
+    generateSummary: 'Generar resumen',
+    generatingSummary: 'El Archivista está redactando la presentación del juego desde tu biblioteca...',
+    summaryStaleHint: 'Nuevas fuentes detectadas',
   },
   de: {
     allTags: 'Alle Tags',
@@ -227,6 +263,15 @@ const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
     gmOnlyBadge: 'Nur SL',
     close: 'Schließen',
     selectDocTags: 'Dokument-Tags',
+    sectionLibrary: 'Bibliothek',
+    sectionGmNotes: 'SL-Notizen',
+    sectionCharacters: 'Charaktere',
+    sectionVirtualTables: 'Virtuelle Tische',
+    archivistSummaryBadge: 'Zusammenfassung vom Archivar',
+    regenerateSummary: 'Neu generieren',
+    generateSummary: 'Zusammenfassung erstellen',
+    generatingSummary: 'Der Archivar verfasst die Spielvorstellung aus deiner Bibliothek...',
+    summaryStaleHint: 'Neue Quellen erkannt',
   },
   pt: {
     allTags: 'Todas as tags',
@@ -249,6 +294,15 @@ const I18N_MESSAGES: Record<UiLocale, Record<I18nKey, string>> = {
     gmOnlyBadge: 'Mestre',
     close: 'Fechar',
     selectDocTags: 'Tags do documento',
+    sectionLibrary: 'Biblioteca',
+    sectionGmNotes: 'Notas do Mestre',
+    sectionCharacters: 'Personagens',
+    sectionVirtualTables: 'Mesas virtuais',
+    archivistSummaryBadge: 'Resumo pelo Arquivista',
+    regenerateSummary: 'Regenerar',
+    generateSummary: 'Gerar resumo',
+    generatingSummary: 'O Arquivista está redigindo a apresentação do jogo a partir da sua biblioteca...',
+    summaryStaleHint: 'Novas fontes detectadas',
   },
 };
 

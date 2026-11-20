@@ -32,11 +32,9 @@ import {
   Grid,
   List,
   Zap,
-  Scroll,
   Users,
   Swords,
   Shield,
-  Activity,
   Globe,
   Settings,
   Volume2,
@@ -128,6 +126,10 @@ interface TheaterSignalSheet {
   current_season: string;
   aura_or_matrix: string;
   agent_curator_summary: string;
+  summary_generated_by_archivist?: boolean;
+  summary_model_used?: string | null;
+  summary_generated_at?: string | null;
+  summary_stale?: boolean;
 }
 
 interface WikiNoteEntry {
@@ -207,6 +209,9 @@ export default function App() {
 
   // Données de l'univers actif
   const [signalSheet, setSignalSheet] = useState<TheaterSignalSheet | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const autoSummaryRequestedRef = useRef<Set<string>>(new Set());
   const [sourcesList, setSourcesList] = useState<SourceFileEntry[]>([]);
   const [wikiNotes, setWikiNotes] = useState<WikiNoteEntry[]>([]);
   const [selectedWikiNote, setSelectedWikiNote] = useState<WikiNoteEntry | null>(null);
@@ -913,6 +918,68 @@ export default function App() {
       console.error(e);
     }
   };
+
+  // Fermeture / génération automatique du résumé de présentation du jeu par L'Archiviste
+  const handleGenerateGameSummary = async (theaterId?: string) => {
+    const tid = theaterId || selectedTheater;
+    if (!tid || isGeneratingSummary) return;
+    setIsGeneratingSummary(true);
+    setSummaryError(null);
+    try {
+      const res = await fetch(`/api/theaters/${encodeURIComponent(tid)}/signal-sheet/generate-summary`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const updated: TheaterSignalSheet = await res.json();
+        setSignalSheet(updated);
+      } else {
+        setSummaryError(`Erreur lors de la génération du résumé (HTTP ${res.status}).`);
+      }
+    } catch (e) {
+      console.error(e);
+      setSummaryError("Impossible de contacter L'Archiviste pour rédiger la présentation.");
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      activeStep !== 'signal' ||
+      !selectedTheater ||
+      !signalSheet ||
+      signalSheet.theater_id !== selectedTheater ||
+      signalSheet.sources_count === 0 ||
+      signalSheet.summary_generated_by_archivist ||
+      autoSummaryRequestedRef.current.has(selectedTheater)
+    ) {
+      return;
+    }
+    autoSummaryRequestedRef.current.add(selectedTheater);
+    let cancelled = false;
+    const targetTheater = selectedTheater;
+    Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setIsGeneratingSummary(true);
+      setSummaryError(null);
+      try {
+        const res = await fetch(`/api/theaters/${encodeURIComponent(targetTheater)}/signal-sheet/generate-summary`, {
+          method: 'POST',
+        });
+        if (!cancelled && res.ok) {
+          const updated: TheaterSignalSheet = await res.json();
+          setSignalSheet(updated);
+        }
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      } finally {
+        if (!cancelled) setIsGeneratingSummary(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStep, selectedTheater, signalSheet]);
 
   // Interrogation NotebookLM-like de L'Archiviste dans le tiroir "Outils"
   const handleAskArchivistTool = async (customQuery?: string) => {
@@ -2747,31 +2814,36 @@ export default function App() {
                 <>
 
 
-              {/* ÉTAPE 1 : FICHE UNIVERS (ARCHITECTURE 5 PILIERS - COBALT LOREKEEPER & OR FORGÉ) */}
+              {/* ÉTAPE 1 : FICHE DE PRÉSENTATION UNIVERS — RÉSUMÉ ARCHIVISTE & 4 SECTIONS EMPILÉES */}
               {activeStep === 'signal' && signalSheet && (
                 <div style={{ width: '100%', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-                  {/* HERO BANNER TACTIQUE : UNIVERS ACTIF */}
-                  <div style={{
-                    position: 'relative',
-                    borderRadius: '16px',
-                    border: '1px solid rgba(59, 130, 246, 0.4)',
-                    background: 'var(--surface-container-lowest)',
-                    overflow: 'hidden',
-                    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.75)',
-                    padding: '28px 32px'
-                  }}>
-                    {/* Aura cobalt d'arrière-plan */}
-                    <div style={{
-                      position: 'absolute',
-                      top: '-80px',
-                      right: '-60px',
-                      width: '320px',
-                      height: '320px',
-                      background: 'radial-gradient(circle, rgba(37, 99, 235, 0.22) 0%, rgba(0,0,0,0) 70%)',
-                      borderRadius: '50%',
-                      pointerEvents: 'none'
-                    }} />
+                  {/* HERO BANNER TACTIQUE : PRÉSENTATION DU JEU PAR L'ARCHIVISTE */}
+                  <section
+                    aria-labelledby="universe-hero-title"
+                    style={{
+                      position: 'relative',
+                      borderRadius: '16px',
+                      border: '1px solid rgba(59, 130, 246, 0.4)',
+                      background: 'var(--surface-container-lowest)',
+                      overflow: 'hidden',
+                      boxShadow: '0 20px 40px rgba(0, 0, 0, 0.75)',
+                      padding: '28px 32px'
+                    }}
+                  >
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        top: '-80px',
+                        right: '-60px',
+                        width: '320px',
+                        height: '320px',
+                        background: 'radial-gradient(circle, rgba(37, 99, 235, 0.22) 0%, rgba(0,0,0,0) 70%)',
+                        borderRadius: '50%',
+                        pointerEvents: 'none'
+                      }}
+                    />
 
                     <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '18px' }}>
                       {/* Top Bar : Système & Compteurs synthétiques */}
@@ -2790,11 +2862,11 @@ export default function App() {
                             fontWeight: 600,
                             color: 'var(--gold)'
                           }}>
-                            <Zap size={13} color="var(--gold)" />
+                            <Zap size={13} color="var(--gold)" aria-hidden="true" />
                             <span>{signalSheet.system_preset || 'Système de règles'}</span>
                           </span>
                           <span style={{ fontSize: '0.84rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                            {sourcesList.length} source(s) • {signalSheet.personae_count} personnage(s) • {wikiNotes.length} note(s)
+                            {sourcesList.length} source(s) • {wikiNotes.length} note(s) • {personae.length} personnage(s)
                           </span>
                         </div>
 
@@ -2810,43 +2882,134 @@ export default function App() {
                           fontSize: '0.76rem',
                           color: '#34d399'
                         }}>
-                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+                          <span aria-hidden="true" style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
                           <span>Univers Cloisonné</span>
                         </div>
                       </div>
 
-                      {/* Titre & Description lisible */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '980px' }}>
+                      {/* Titre & Résumé généré par L'Archiviste */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '980px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                          <div style={{
-                            width: '44px',
-                            height: '44px',
-                            borderRadius: '10px',
-                            background: 'rgba(59, 130, 246, 0.14)',
-                            border: '1px solid rgba(59, 130, 246, 0.4)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--cobalt-light)',
-                            flexShrink: 0
-                          }}>
-                            <Compass size={22} />
+                          <div
+                            aria-hidden="true"
+                            style={{
+                              width: '44px',
+                              height: '44px',
+                              borderRadius: '10px',
+                              background: 'rgba(59, 130, 246, 0.14)',
+                              border: '1px solid rgba(59, 130, 246, 0.4)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--cobalt-light)',
+                              flexShrink: 0
+                            }}
+                          >
+                            <Compass size={22} aria-hidden="true" />
                           </div>
-                          <h1 style={{ fontFamily: 'var(--font-title)', fontSize: '2.15rem', color: 'var(--text-main)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
+                          <h1
+                            id="universe-hero-title"
+                            style={{ fontFamily: 'var(--font-title)', fontSize: '2.15rem', color: 'var(--text-main)', margin: 0, letterSpacing: '-0.02em', lineHeight: 1.15 }}
+                          >
                             {signalSheet.name}
                           </h1>
                         </div>
 
-                        <p style={{
-                          fontFamily: 'var(--font-ui)',
-                          fontSize: '1rem',
-                          lineHeight: '1.7',
-                          color: 'var(--text-muted)',
-                          margin: 0,
-                          maxWidth: '880px'
-                        }}>
-                          {signalSheet.agent_curator_summary || "Univers cloisonné sous Dramatis. Toutes les réponses et verdicts s'appuient strictement sur les sources et règles de cet univers."}
-                        </p>
+                        {isGeneratingSummary ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(59, 130, 246, 0.28)' }}>
+                            <span style={{ fontSize: '0.92rem', color: 'var(--cobalt-light)' }}>
+                              {t(uiLocale, 'generatingSummary')}
+                            </span>
+                            <progress
+                              aria-label={t(uiLocale, 'generatingSummary')}
+                              style={{ width: '260px', accentColor: 'var(--cobalt-light)' }}
+                            />
+                          </div>
+                        ) : (
+                          <p style={{
+                            fontFamily: 'var(--font-ui)',
+                            fontSize: '1rem',
+                            lineHeight: '1.7',
+                            color: 'var(--text-muted)',
+                            margin: 0,
+                            maxWidth: '920px',
+                            whiteSpace: 'pre-line'
+                          }}>
+                            {signalSheet.agent_curator_summary || (signalSheet.sources_count > 0 ? t(uiLocale, 'generatingSummary') : '')}
+                          </p>
+                        )}
+
+                        {summaryError && (
+                          <p role="alert" style={{ color: '#fca5a5', fontSize: '0.84rem', margin: 0 }}>
+                            {summaryError}
+                          </p>
+                        )}
+
+                        {/* Barre d'attribution & régénération du résumé par L'Archiviste */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '3px 10px',
+                            borderRadius: '9999px',
+                            background: 'rgba(59, 130, 246, 0.14)',
+                            border: '1px solid rgba(59, 130, 246, 0.35)',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '0.73rem',
+                            color: 'var(--cobalt-light)'
+                          }}>
+                            <Sparkles size={12} aria-hidden="true" />
+                            <span>
+                              {t(uiLocale, 'archivistSummaryBadge')}
+                              {signalSheet.summary_model_used ? ` • ${signalSheet.summary_model_used}` : ''}
+                            </span>
+                          </span>
+
+                          {signalSheet.summary_stale && signalSheet.sources_count > 0 && (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '3px 10px',
+                              borderRadius: '9999px',
+                              background: 'rgba(245, 158, 11, 0.14)',
+                              border: '1px solid rgba(245, 158, 11, 0.45)',
+                              fontFamily: 'var(--font-mono)',
+                              fontSize: '0.72rem',
+                              color: '#fbbf24'
+                            }}>
+                              {t(uiLocale, 'summaryStaleHint')}
+                            </span>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateGameSummary()}
+                            disabled={isGeneratingSummary || signalSheet.sources_count === 0}
+                            aria-busy={isGeneratingSummary}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '4px 12px',
+                              borderRadius: '6px',
+                              background: 'var(--surface-container-high)',
+                              border: '1px solid rgba(59, 130, 246, 0.38)',
+                              color: 'var(--text-main)',
+                              fontSize: '0.78rem',
+                              fontWeight: 500,
+                              cursor: isGeneratingSummary || signalSheet.sources_count === 0 ? 'not-allowed' : 'pointer',
+                              opacity: isGeneratingSummary || signalSheet.sources_count === 0 ? 0.55 : 1
+                            }}
+                          >
+                            <RotateCcw size={12} aria-hidden="true" />
+                            <span>
+                              {signalSheet.summary_generated_by_archivist
+                                ? t(uiLocale, 'regenerateSummary')
+                                : t(uiLocale, 'generateSummary')}
+                            </span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Actions Rapides du Hero */}
@@ -2859,6 +3022,7 @@ export default function App() {
                         borderTop: '1px solid rgba(255, 255, 255, 0.08)'
                       }}>
                         <button
+                          type="button"
                           onClick={() => setActiveStep('stage')}
                           style={{
                             padding: '10px 20px',
@@ -2875,11 +3039,12 @@ export default function App() {
                             cursor: 'pointer'
                           }}
                         >
-                          <Swords size={16} />
+                          <Swords size={16} aria-hidden="true" />
                           <span>Lancer la Table Virtuelle</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => {
                             setIsDrawerOpen(true);
                             setActiveToolTab('archivist');
@@ -2898,11 +3063,12 @@ export default function App() {
                             cursor: 'pointer'
                           }}
                         >
-                          <Bot size={16} color="var(--cobalt-light)" />
+                          <Bot size={16} color="var(--cobalt-light)" aria-hidden="true" />
                           <span>Interroger l'Archiviste IA</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => setActiveStep('sources')}
                           style={{
                             padding: '10px 16px',
@@ -2918,11 +3084,12 @@ export default function App() {
                             cursor: 'pointer'
                           }}
                         >
-                          <FileText size={16} color="var(--cobalt-light)" />
+                          <FileText size={16} color="var(--cobalt-light)" aria-hidden="true" />
                           <span>Gérer les Sources ({sourcesList.length})</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={openSettingsScreen}
                           style={{
                             padding: '10px 16px',
@@ -2938,212 +3105,120 @@ export default function App() {
                             cursor: 'pointer'
                           }}
                         >
-                          <Sliders size={15} color="var(--text-dim)" />
+                          <Sliders size={15} color="var(--text-dim)" aria-hidden="true" />
                           <span>Paramètres Agents</span>
                         </button>
                       </div>
                     </div>
-                  </div>
+                  </section>
 
-                  {/* GRILLE CENTRALE : PILIERS 1 À 5 */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '20px' }}>
+                  {/* 4 SECTIONS CLAIRES EMPILÉES LES UNES AU-DESSUS DES AUTRES */}
 
-                    {/* PILIER 1 : CONFIGURATION & MOTEUR DE RÈGLES (8 COLS) */}
-                    <div style={{
-                      gridColumn: 'span 8',
+                  {/* SECTION 1 : BIBLIOTHÈQUE (ENSEMBLE DES SOURCES) */}
+                  <section
+                    aria-labelledby="section-library-heading"
+                    style={{
                       borderRadius: '12px',
                       border: '1px solid var(--border)',
                       background: 'var(--surface-container-low)',
                       backdropFilter: 'blur(8px)',
-                      padding: '20px 24px',
+                      padding: '22px 24px',
                       boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
-                          <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--text-main)', margin: 0 }}>
-                            Règles &amp; Environnement
-                          </h2>
-                        </div>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', background: 'rgba(37, 99, 235, 0.18)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.35)', padding: '3px 10px', borderRadius: '5px' }}>
-                          Moteur Déterministe Actif
-                        </span>
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Library size={18} color="var(--cobalt-light)" aria-hidden="true" />
+                        <h2 id="section-library-heading" style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                          {t(uiLocale, 'sectionLibrary')} ({sourcesList.length})
+                        </h2>
                       </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', paddingTop: '16px' }}>
-                        {/* Bloc Système */}
-                        <div style={{ padding: '14px 16px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-light)', fontFamily: 'var(--font-mono)', fontSize: '0.74rem', textTransform: 'uppercase', fontWeight: 700 }}>
-                            <Sliders size={13} />
-                            <span>Système de règles</span>
-                          </div>
-                          <p style={{ margin: '8px 0 4px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.96rem' }}>
-                            {signalSheet.system_preset || 'Système Personnalisé'}
-                          </p>
-                          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-dim)', lineHeight: 1.45 }}>
-                            Calculs et jets arbitrés par le moteur Rust/Rhai.
-                          </p>
-                        </div>
-
-                        {/* Bloc Cloisonnement */}
-                        <div style={{ padding: '14px 16px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-light)', fontFamily: 'var(--font-mono)', fontSize: '0.74rem', textTransform: 'uppercase', fontWeight: 700 }}>
-                            <Shield size={13} />
-                            <span>Cloisonnement</span>
-                          </div>
-                          <p style={{ margin: '8px 0 4px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.96rem' }}>
-                            Univers Hermétique
-                          </p>
-                          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-dim)', lineHeight: 1.45 }}>
-                            Fiches, lore, règles et tables isolés dans ce théâtre.
-                          </p>
-                        </div>
-
-                        {/* Bloc Corpus */}
-                        <div style={{ padding: '14px 16px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--cobalt-light)', fontFamily: 'var(--font-mono)', fontSize: '0.74rem', textTransform: 'uppercase', fontWeight: 700 }}>
-                            <Activity size={13} />
-                            <span>Index Documentaire</span>
-                          </div>
-                          <p style={{ margin: '8px 0 4px 0', fontWeight: 600, color: 'var(--text-main)', fontSize: '0.96rem' }}>
-                            {sourcesList.length} document(s) indexé(s)
-                          </p>
-                          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-dim)', lineHeight: 1.45 }}>
-                            Recherche hybride locale prête pour l'Archiviste.
-                          </p>
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep('sources')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '0.82rem',
+                          fontWeight: 500,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={14} color="var(--gold)" aria-hidden="true" />
+                        <span>Ajouter / Gérer</span>
+                      </button>
                     </div>
 
-                    {/* MODULE COMPACT : NOTES RAPIDES DU MJ (4 COLS) */}
-                    <div style={{
-                      gridColumn: 'span 4',
-                      borderRadius: '12px',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface-container-low)',
-                      backdropFilter: 'blur(8px)',
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--gold)' }}>
-                          <Shield size={15} />
-                          <h3 style={{ fontFamily: 'var(--font-title)', fontSize: '1rem', color: 'var(--text-main)', margin: 0 }}>
-                            Notes Rapides du MJ
-                          </h3>
-                        </div>
-                        <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', background: 'rgba(37, 99, 235, 0.18)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '2px 6px', borderRadius: '4px' }}>
-                          Secret MJ
-                        </span>
-                      </div>
-
-                      <div style={{
-                        padding: '12px',
-                        borderRadius: '8px',
-                        background: 'var(--surface-container-lowest)',
-                        border: '1px solid var(--border)',
-                        fontSize: '0.8rem',
-                        color: 'var(--text-muted)',
-                        lineHeight: '1.5',
-                        fontStyle: 'italic'
-                      }}>
-                        "Consulter l'Archiviste pour extraire les règles spécifiques aux blessures critiques ou aux surcharges d'essence. Conserver la séparation absolue entre verdicts de règles et narration."
-                      </div>
-
-                      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                        <span>Chiffrement local SQLite</span>
-                        <button onClick={() => setActiveStep('wiki')} style={{ color: 'var(--cobalt-light)', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span>Voir le Codex Lore</span>
-                          <ArrowRight size={10} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* PILIER 2 : DOCUMENTS SOURCES & CORPUS INDEXÉ (12 COLS) */}
-                    <div style={{
-                      gridColumn: 'span 12',
-                      borderRadius: '12px',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface-container-low)',
-                      backdropFilter: 'blur(8px)',
-                      padding: '20px 24px',
-                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--cobalt-core)' }} />
-                          <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--text-main)', margin: 0 }}>
-                            Documents Sources ({sourcesList.length})
-                          </h2>
-                        </div>
-                        <button
-                          onClick={() => setActiveStep('sources')}
-                          style={{
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            background: 'var(--surface-container-high)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text-main)',
-                            fontSize: '0.82rem',
-                            fontWeight: 500,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <Plus size={14} color="var(--gold)" />
-                          <span>Ajouter / Gérer</span>
-                        </button>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '14px', paddingTop: '16px' }}>
-                        {sourcesList.length > 0 ? (
-                          sourcesList.map((src, i) => (
-                            <div
-                              key={src.relative_path || i}
-                              onClick={() => setActiveStep('sources')}
+                    {sourcesList.length > 0 ? (
+                      <ul
+                        role="list"
+                        style={{
+                          listStyle: 'none',
+                          margin: 0,
+                          padding: '16px 0 0 0',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
+                          gap: '14px'
+                        }}
+                      >
+                        {sourcesList.map((src, i) => (
+                          <li key={src.relative_path || i} style={{ display: 'flex' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleViewSource(src.file_name)}
                               style={{
+                                width: '100%',
+                                textAlign: 'left',
                                 padding: '14px 16px',
                                 borderRadius: '8px',
                                 background: 'var(--surface-container-lowest)',
                                 border: '1px solid var(--border)',
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-start',
                                 gap: '12px',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s ease'
+                                transition: 'border-color 0.2s ease'
                               }}
                             >
-                              <div style={{
-                                padding: '9px',
-                                borderRadius: '8px',
-                                background: 'var(--surface-container-high)',
-                                color: src.file_type === 'pdf' ? '#f87171' : 'var(--cobalt-light)',
-                                flexShrink: 0
-                              }}>
-                                <FileText size={18} />
+                              <div
+                                aria-hidden="true"
+                                style={{
+                                  padding: '9px',
+                                  borderRadius: '8px',
+                                  background: 'var(--surface-container-high)',
+                                  color: src.file_type === 'pdf' ? '#f87171' : 'var(--cobalt-light)',
+                                  flexShrink: 0
+                                }}
+                              >
+                                <FileText size={18} aria-hidden="true" />
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <h4 style={{
-                                  margin: 0,
-                                  fontSize: '0.9rem',
-                                  color: 'var(--text-main)',
-                                  fontWeight: 600,
-                                  lineHeight: 1.35,
-                                  wordBreak: 'break-word',
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden'
-                                }} title={src.file_name}>
+                                <h3
+                                  style={{
+                                    margin: 0,
+                                    fontSize: '0.92rem',
+                                    color: 'var(--text-main)',
+                                    fontWeight: 600,
+                                    lineHeight: 1.35,
+                                    wordBreak: 'break-word',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    lineClamp: 2,
+                                    overflow: 'clip'
+                                  }}
+                                >
                                   {src.file_name}
-                                </h4>
+                                </h3>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-dim)', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
                                   <span>{src.file_type.toUpperCase()}</span>
-                                  <span>•</span>
+                                  <span aria-hidden="true">•</span>
                                   <span>{(src.size_bytes / 1024).toFixed(1) + ' KB'}</span>
                                 </div>
                                 {src.tags && src.tags.length > 0 && (
@@ -3172,272 +3247,362 @@ export default function App() {
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div style={{ gridColumn: '1 / -1', padding: '24px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
-                            Aucun document source déposé dans <code>00_sources/</code>. Déposez vos PDF ou fichiers Markdown pour alimenter la mémoire documentaire de cet univers.
-                          </div>
-                        )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ marginTop: '16px', padding: '24px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
+                        Aucun document déposé dans <code>00_sources/</code>. Ajoutez vos livres de règles, suppléments ou aides de jeu pour alimenter la bibliothèque.
                       </div>
-                    </div>
+                    )}
+                  </section>
 
-                    {/* PILIER 3 : L'ARCHIVISTE IA DÉDIÉ (7 COLS) */}
-                    <div style={{
-                      gridColumn: 'span 7',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(59, 130, 246, 0.4)',
-                      background: 'var(--surface-container-low)',
-                      backdropFilter: 'blur(8px)',
-                      padding: '20px 24px',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
-                    }}>
-                      <div style={{
-                        position: 'absolute',
-                        top: '-40px',
-                        right: '-40px',
-                        width: '160px',
-                        height: '160px',
-                        background: 'radial-gradient(circle, rgba(37, 99, 235, 0.2) 0%, rgba(0,0,0,0) 70%)',
-                        borderRadius: '50%',
-                        pointerEvents: 'none'
-                      }} />
-
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', position: 'relative', zIndex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Bot size={18} color="var(--cobalt-light)" />
-                          <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--text-main)', margin: 0 }}>
-                            L'Archiviste IA
-                          </h2>
-                        </div>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--cobalt-light)', fontWeight: 600 }}>
-                          Index Documentaire Actif ({sourcesList.length} sources)
-                        </span>
-                      </div>
-
-                      <div style={{ paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative', zIndex: 1 }}>
-                        <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                          <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: 'var(--surface-container-high)', border: '1px solid rgba(59, 130, 246, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cobalt-light)', flexShrink: 0 }}>
-                            <Scroll size={20} />
-                          </div>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>L'Archiviste du Théâtre</span>
-                              <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', background: 'rgba(37, 99, 235, 0.2)', color: 'var(--cobalt-light)', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '1px 6px', borderRadius: '3px', fontWeight: 600 }}>
-                                Scribe Lorekeeper
-                              </span>
-                            </div>
-                            <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-dim)', fontStyle: 'italic', lineHeight: 1.45 }}>
-                              "Gardien incorruptible du canon. Je cite exclusivement les fragments des sources actives sans jamais extrapoler ni inventer de règles."
-                            </p>
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px', borderRadius: '8px', background: 'var(--surface-container-lowest)', border: '1px solid var(--border)' }}>
-                          <Search size={16} color="var(--text-dim)" style={{ marginLeft: '8px' }} />
-                          <input
-                            type="text"
-                            placeholder="Interroger l'Archiviste sur le lore, les règles ou les mystères..."
-                            value={archivistChatInput}
-                            onChange={(e) => setArchivistChatInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && archivistChatInput.trim()) {
-                                setIsDrawerOpen(true);
-                                setActiveToolTab('archivist');
-                                handleAskArchivistTool();
-                              }
-                            }}
-                            style={{
-                              flex: 1,
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--text-main)',
-                              fontSize: '0.88rem',
-                              outline: 'none',
-                              padding: '6px'
-                            }}
-                          />
-                          <button
-                            onClick={() => {
-                              if (archivistChatInput.trim()) {
-                                setIsDrawerOpen(true);
-                                setActiveToolTab('archivist');
-                                handleAskArchivistTool();
-                              }
-                            }}
-                            style={{
-                              padding: '6px 14px',
-                              borderRadius: '6px',
-                              background: 'var(--cobalt-core)',
-                              color: '#fff',
-                              border: 'none',
-                              fontWeight: 600,
-                              fontSize: '0.78rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <span>Consulter</span>
-                            <Send size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* PILIER 5 : TABLES VIRTUELLES VTT (5 COLS) */}
-                    <div style={{
-                      gridColumn: 'span 5',
+                  {/* SECTION 2 : NOTES DU MJ (CODEX & NOTES D'UNIVERS) */}
+                  <section
+                    aria-labelledby="section-gm-notes-heading"
+                    style={{
                       borderRadius: '12px',
                       border: '1px solid var(--border)',
                       background: 'var(--surface-container-low)',
                       backdropFilter: 'blur(8px)',
-                      padding: '20px 24px',
+                      padding: '22px 24px',
                       boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
-                          <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--text-main)', margin: 0 }}>
-                            Tables Virtuelles
-                          </h2>
-                        </div>
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <BookOpen size={18} color="#34d399" aria-hidden="true" />
+                        <h2 id="section-gm-notes-heading" style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                          {t(uiLocale, 'sectionGmNotes')} ({wikiNotes.length})
+                        </h2>
                       </div>
-
-                      <div style={{ paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{
-                          padding: '14px',
-                          borderRadius: '8px',
-                          background: 'var(--surface-container-lowest)',
-                          border: '1.5px solid rgba(245, 158, 11, 0.4)',
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep('wiki')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '0.82rem',
+                          fontWeight: 500,
                           display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px'
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }} />
-                              <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 700 }}>
-                                Table Principale : {signalSheet.name}
-                              </h4>
-                            </div>
-                            <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '1px 6px', borderRadius: '3px' }}>
-                              Active
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.74rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                            <span>{signalSheet.personae_count} Personnage(s)</span>
-                            <span>•</span>
-                            <span>Scène : Prologue de campagne</span>
-                          </div>
-                          <button
-                            onClick={() => setActiveStep('stage')}
-                            style={{
-                              marginTop: '6px',
-                              padding: '8px 14px',
-                              borderRadius: '6px',
-                              background: 'linear-gradient(135deg, var(--gold) 0%, #b45309 100%)',
-                              color: '#0B0C10',
-                              border: 'none',
-                              fontWeight: 700,
-                              fontSize: '0.78rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '6px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Swords size={14} />
-                            <span>Rejoindre la Session</span>
-                          </button>
-                        </div>
-                      </div>
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={14} color="#34d399" aria-hidden="true" />
+                        <span>Nouvelle note / Codex</span>
+                      </button>
                     </div>
 
-                    {/* PILIER 4 : PERSONNAGES (ROSTER CLOISONNÉ) (12 COLS) */}
-                    <div id="studio-personae-section" style={{
-                      gridColumn: 'span 12',
-                      borderRadius: '12px',
-                      border: '1px solid var(--border)',
-                      background: 'var(--surface-container-low)',
-                      backdropFilter: 'blur(8px)',
-                      padding: '20px 24px',
-                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gold)' }} />
-                          <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '1.1rem', color: 'var(--text-main)', margin: 0 }}>
-                            Personnages ({personae.length || signalSheet.personae_count})
-                          </h2>
-                        </div>
+                    {wikiNotes.length > 0 ? (
+                      <ul
+                        role="list"
+                        style={{
+                          listStyle: 'none',
+                          margin: 0,
+                          padding: '16px 0 0 0',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
+                          gap: '14px'
+                        }}
+                      >
+                        {wikiNotes.map((note, idx) => {
+                          const displayNoteTitle = note.slug.replace(/[_-]+/g, ' ');
+                          const previewBody = note.content
+                            .replace(/^---[\s\S]*?---/, '')
+                            .replace(/[#*`>[\]]/g, '')
+                            .trim();
+                          return (
+                            <li key={note.relative_path || `${note.category}-${note.slug}-${idx}`} style={{ display: 'flex' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedWikiNote(note);
+                                  setActiveStep('wiki');
+                                }}
+                                style={{
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  padding: '14px 16px',
+                                  borderRadius: '8px',
+                                  background: 'var(--surface-container-lowest)',
+                                  border: '1px solid var(--border)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '8px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', width: '100%' }}>
+                                  <h3 style={{ margin: 0, fontSize: '0.94rem', color: 'var(--text-main)', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }}>
+                                    {displayNoteTitle}
+                                  </h3>
+                                  <span style={{
+                                    fontSize: '0.68rem',
+                                    fontFamily: 'var(--font-mono)',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(16, 185, 129, 0.14)',
+                                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                                    color: '#34d399',
+                                    flexShrink: 0
+                                  }}>
+                                    {note.category}
+                                  </span>
+                                </div>
+                                <p style={{
+                                  margin: 0,
+                                  fontSize: '0.82rem',
+                                  color: 'var(--text-dim)',
+                                  lineHeight: 1.45,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  lineClamp: 2,
+                                  overflow: 'clip'
+                                }}>
+                                  {previewBody || note.relative_path}
+                                </p>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <div style={{ marginTop: '16px', padding: '22px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                        <span>Aucune note MJ enregistrée dans <code>01_wiki/</code>. Consignez vos lieux, factions, PNJ ou préparations de séance.</span>
                         <button
-                          onClick={() => setActiveStep('stage')}
+                          type="button"
+                          onClick={() => setActiveStep('wiki')}
                           style={{
-                            padding: '4px 12px',
+                            padding: '6px 14px',
                             borderRadius: '6px',
-                            background: 'var(--surface-container-high)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--gold)',
-                            fontSize: '0.75rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
+                            background: 'rgba(16, 185, 129, 0.14)',
+                            border: '1px solid rgba(16, 185, 129, 0.38)',
+                            color: '#34d399',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
                             cursor: 'pointer'
                           }}
                         >
-                          <Plus size={12} color="var(--gold)" />
-                          <span>Gérer / Nouveau PJ</span>
+                          Ouvrir les Notes du MJ
                         </button>
                       </div>
+                    )}
+                  </section>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px', paddingTop: '16px' }}>
-                        {personae.length > 0 ? (
-                          personae.map((perso, idx) => (
-                            <div
-                              key={perso.id || idx}
-                              style={{
-                                padding: '14px',
-                                borderRadius: '8px',
-                                background: 'var(--surface-container-lowest)',
-                                border: '1px solid var(--border)',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '10px'
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', background: 'var(--surface-container-high)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gold)', fontWeight: 700 }}>
-                                  {perso.name ? perso.name[0] : 'P'}
-                                </div>
-                                <div style={{ minWidth: 0 }}>
-                                  <h4 style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-main)', fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {perso.name || `Personnage #${idx + 1}`}
-                                  </h4>
-                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                                    {perso.concept || perso.role || 'Protagoniste'}
-                                  </span>
-                                </div>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
-                                <span style={{ color: '#10b981' }}>Santé: Active</span>
-                                <span style={{ color: 'var(--gold)' }}>Rôle: PJ</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
-                            Aucun personnage instancié dans <code>03_personae/</code>. Utilisez l'Intendant ou la table VTT pour forger un protagoniste.
-                          </div>
-                        )}
+                  {/* SECTION 3 : PERSONNAGES */}
+                  <section
+                    id="studio-personae-section"
+                    aria-labelledby="section-personae-heading"
+                    style={{
+                      borderRadius: '12px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface-container-low)',
+                      backdropFilter: 'blur(8px)',
+                      padding: '22px 24px',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Users size={18} color="var(--gold)" aria-hidden="true" />
+                        <h2 id="section-personae-heading" style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                          {t(uiLocale, 'sectionCharacters')} ({personae.length})
+                        </h2>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep('stage')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--gold)',
+                          fontSize: '0.82rem',
+                          fontWeight: 500,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Plus size={14} color="var(--gold)" aria-hidden="true" />
+                        <span>Gérer / Nouveau PJ</span>
+                      </button>
                     </div>
 
-                  </div>
+                    {personae.length > 0 ? (
+                      <ul
+                        role="list"
+                        style={{
+                          listStyle: 'none',
+                          margin: 0,
+                          padding: '16px 0 0 0',
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                          gap: '14px'
+                        }}
+                      >
+                        {personae.map((perso, idx) => (
+                          <li
+                            key={perso.id || idx}
+                            style={{
+                              padding: '14px 16px',
+                              borderRadius: '8px',
+                              background: 'var(--surface-container-lowest)',
+                              border: '1px solid var(--border)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '10px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div
+                                aria-hidden="true"
+                                style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  borderRadius: '6px',
+                                  background: 'var(--surface-container-high)',
+                                  border: '1px solid var(--border)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'var(--gold)',
+                                  fontWeight: 700,
+                                  flexShrink: 0
+                                }}
+                              >
+                                {perso.name ? perso.name[0] : 'P'}
+                              </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <h3 style={{ margin: 0, fontSize: '0.92rem', color: 'var(--text-main)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {perso.name || `Personnage #${idx + 1}`}
+                                </h3>
+                                <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                                  {perso.archetype || perso.concept || perso.role || 'Protagoniste'}
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem', fontFamily: 'var(--font-mono)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                              <span style={{ color: '#10b981' }}>{perso.theater_system || signalSheet.system_preset}</span>
+                              <span style={{ color: 'var(--gold)' }}>
+                                {typeof perso.experience_points === 'number' ? `${perso.experience_points} XP` : 'PJ actif'}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ marginTop: '16px', padding: '20px', textAlign: 'center', color: 'var(--text-dim)', background: 'var(--surface-container-lowest)', borderRadius: '8px' }}>
+                        Aucun personnage instancié dans <code>03_personae/</code>. Utilisez l'Intendant ou la table virtuelle pour créer un protagoniste.
+                      </div>
+                    )}
+                  </section>
+
+                  {/* SECTION 4 : TABLES VIRTUELLES */}
+                  <section
+                    aria-labelledby="section-vtt-heading"
+                    style={{
+                      borderRadius: '12px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface-container-low)',
+                      backdropFilter: 'blur(8px)',
+                      padding: '22px 24px',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Swords size={18} color="var(--gold)" aria-hidden="true" />
+                        <h2 id="section-vtt-heading" style={{ fontFamily: 'var(--font-title)', fontSize: '1.15rem', color: 'var(--text-main)', margin: 0 }}>
+                          {t(uiLocale, 'sectionVirtualTables')}
+                        </h2>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveStep('stage')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          background: 'var(--surface-container-high)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text-main)',
+                          fontSize: '0.82rem',
+                          fontWeight: 500,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <ArrowRight size={14} color="var(--gold)" aria-hidden="true" />
+                        <span>Ouvrir la Table VTT</span>
+                      </button>
+                    </div>
+
+                    <div style={{ paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{
+                        padding: '18px 20px',
+                        borderRadius: '8px',
+                        background: 'var(--surface-container-lowest)',
+                        border: '1.5px solid rgba(245, 158, 11, 0.4)',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '16px'
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+                            <h3 style={{ margin: 0, fontSize: '0.98rem', color: 'var(--text-main)', fontWeight: 700 }}>
+                              Table Principale : {signalSheet.name}
+                            </h3>
+                            <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '2px 7px', borderRadius: '4px' }}>
+                              Active
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px', fontSize: '0.78rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                            <span>{personae.length} personnage(s)</span>
+                            <span aria-hidden="true">•</span>
+                            <span>{stageLogs.length} événement(s) en journal</span>
+                            <span aria-hidden="true">•</span>
+                            <span>Scène : Prologue de campagne</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveStep('stage')}
+                          style={{
+                            padding: '10px 18px',
+                            borderRadius: '8px',
+                            background: 'linear-gradient(135deg, var(--gold) 0%, #b45309 100%)',
+                            color: '#0B0C10',
+                            border: 'none',
+                            fontWeight: 700,
+                            fontSize: '0.84rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Swords size={15} aria-hidden="true" />
+                          <span>Rejoindre la Session</span>
+                        </button>
+                      </div>
+                    </div>
+                  </section>
 
                 </div>
               )}

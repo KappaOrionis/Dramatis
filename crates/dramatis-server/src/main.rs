@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::sync::Arc;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode, Uri},
@@ -11,6 +7,10 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -23,7 +23,10 @@ use dramatis_core::{
     acl::Role,
     alliance::{AllianceState, DowntimeActivity, DowntimeEngine, DowntimeResolutionResult},
     artificer::{ArtificerEngine, HermeticCraftInput, HermeticCraftVerdict},
-    creation::{ArsMagicaCreationInput, CharacterCreationEngine, CreationValidationResult, ShadowrunPriorityInput},
+    creation::{
+        ArsMagicaCreationInput, CharacterCreationEngine, CreationValidationResult,
+        ShadowrunPriorityInput,
+    },
     epistemic::EpistemicFilter,
     ledger::PartyLedger,
     mcp::{McpRegistry, McpToolSpec},
@@ -33,25 +36,21 @@ use dramatis_core::{
     source_tags::{SourceTagRegistry, TagDefinition},
     theater::{TheaterManifest, TheaterWorkspace},
 };
-use dramatis_ingest::{
-    MarkdownDocParser, ReconciliationDiffEngine, SectionNode, TableDiffReport,
-};
+use dramatis_ingest::{MarkdownDocParser, ReconciliationDiffEngine, SectionNode, TableDiffReport};
 use dramatis_machina::{
     AdvancedDiceParser, AdvancedRollResult, ArsMagicaStressResult, DiceEngine, DiceRollResult,
-    EdgeEvaluationInput, EdgeEvaluationResult, MonteCarloSimulator, MonteCarloSummary,
-    RhaiSandbox, ShadowrunPoolResult, SystemSchema, TacticalEdgeEngine,
+    EdgeEvaluationInput, EdgeEvaluationResult, MonteCarloSimulator, MonteCarloSummary, RhaiSandbox,
+    ShadowrunPoolResult, SystemSchema, TacticalEdgeEngine,
 };
 use dramatis_rag::{
-    ArchivistVerdict, AutoWikilinker, CampaignChronicler,
-    EntityResolutionResult, EntityResolver, HybridSearchEngine, HybridSearchResult,
-    MysteriesBoard, NonDestructiveWikiPatcher, SessionDebrief,
+    ArchivistVerdict, AutoWikilinker, CampaignChronicler, Citation, EntityResolutionResult,
+    EntityResolver, HybridSearchEngine, HybridSearchResult, MysteriesBoard,
+    NonDestructiveWikiPatcher, SessionDebrief,
 };
 use dramatis_stage::{
-    ChannelType, DeterministicInterceptionEngine, InterceptionHook,
-    InterceptionVerdict, MechanicalIntention, MechanicalResolution,
-    SceneTopology, SessionEventLogger, SessionLogEntry,
-    StageChannelRouter, StageResolutionGate, TacticalTag, TacticalZone,
-    ZoneId,
+    ChannelType, DeterministicInterceptionEngine, InterceptionHook, InterceptionVerdict,
+    MechanicalIntention, MechanicalResolution, SceneTopology, SessionEventLogger, SessionLogEntry,
+    StageChannelRouter, StageResolutionGate, TacticalTag, TacticalZone, ZoneId,
 };
 
 #[derive(RustEmbed)]
@@ -133,10 +132,12 @@ pub struct EvaluateRhaiResponse {
     pub script: String,
 }
 
-async fn roll_standard_handler(
-    Json(payload): Json<RollStandardRequest>,
-) -> Json<DiceRollResult> {
-    Json(DiceEngine::roll_standard(payload.count, payload.sides, payload.modifier))
+async fn roll_standard_handler(Json(payload): Json<RollStandardRequest>) -> Json<DiceRollResult> {
+    Json(DiceEngine::roll_standard(
+        payload.count,
+        payload.sides,
+        payload.modifier,
+    ))
 }
 
 async fn roll_shadowrun_handler(
@@ -219,7 +220,8 @@ async fn get_system_schema_handler(
         .join(normalize_theater_dir(&id))
         .join("02_machina/system_schema.json");
     if schema_path.exists() {
-        let schema = SystemSchema::load_from_file(&schema_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let schema = SystemSchema::load_from_file(&schema_path)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(Json(schema))
     } else {
         Err(StatusCode::NOT_FOUND)
@@ -246,7 +248,8 @@ async fn list_sql_tables_handler(
     if !tables_db.exists() {
         return Ok(Json(Vec::new()));
     }
-    let conn = rusqlite::Connection::open(tables_db).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let conn =
+        rusqlite::Connection::open(tables_db).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut stmt = conn
         .prepare("SELECT table_name, COALESCE(description,''), COALESCE(ddl_schema,''), COALESCE(proxy_markdown,''), row_count FROM table_metadata")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -324,7 +327,10 @@ async fn list_snapshots_handler(
     let raw = mgr.list_snapshots(25).unwrap_or_default();
     let entries = raw
         .into_iter()
-        .map(|(commit_hash, message)| SnapshotEntry { commit_hash, message })
+        .map(|(commit_hash, message)| SnapshotEntry {
+            commit_hash,
+            message,
+        })
         .collect();
     Ok(Json(entries))
 }
@@ -401,7 +407,8 @@ async fn advance_chronos_handler(
         }
     }
 
-    let yaml = serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let yaml =
+        serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     std::fs::write(theater_path.join("theater.yaml"), yaml)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -492,14 +499,28 @@ async fn ingest_markdown_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let resolution_label = match &res {
-        EntityResolutionResult::MergeWithExisting { canonical_title, score, .. } => {
-            format!("MergeWithExisting ({}, score {:.2})", canonical_title, score)
+        EntityResolutionResult::MergeWithExisting {
+            canonical_title,
+            score,
+            ..
+        } => {
+            format!(
+                "MergeWithExisting ({}, score {:.2})",
+                canonical_title, score
+            )
         }
         EntityResolutionResult::CreateNew { proposed_title } => {
             format!("CreateNew ({})", proposed_title)
         }
-        EntityResolutionResult::HumanReviewRequired { candidate_title, score, .. } => {
-            format!("HumanReviewRequired ({}, score {:.2})", candidate_title, score)
+        EntityResolutionResult::HumanReviewRequired {
+            candidate_title,
+            score,
+            ..
+        } => {
+            format!(
+                "HumanReviewRequired ({}, score {:.2})",
+                candidate_title, score
+            )
         }
     };
 
@@ -515,7 +536,11 @@ async fn ingest_markdown_handler(
             &payload.title,
             &payload.category,
             &rel_path,
-            &payload.markdown_content.chars().take(240).collect::<String>(),
+            &payload
+                .markdown_content
+                .chars()
+                .take(240)
+                .collect::<String>(),
         )
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -578,11 +603,12 @@ async fn upload_source_file_handler(
         payload.content.as_bytes().to_vec()
     };
 
-    std::fs::write(&source_path, &bytes)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(&source_path, &bytes).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let rel_path = format!("00_sources/{}", safe_file_name);
-    let doc_id = safe_file_name.to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '.', "_");
+    let doc_id = safe_file_name
+        .to_lowercase()
+        .replace(|c: char| !c.is_alphanumeric() && c != '.', "_");
 
     // Extract text for indexing: if PDF, use PdfDocParser, otherwise parse as markdown
     let ext = source_path
@@ -604,14 +630,28 @@ async fn upload_source_file_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let resolution_label = match &res {
-        EntityResolutionResult::MergeWithExisting { canonical_title, score, .. } => {
-            format!("MergeWithExisting ({}, score {:.2})", canonical_title, score)
+        EntityResolutionResult::MergeWithExisting {
+            canonical_title,
+            score,
+            ..
+        } => {
+            format!(
+                "MergeWithExisting ({}, score {:.2})",
+                canonical_title, score
+            )
         }
         EntityResolutionResult::CreateNew { proposed_title } => {
             format!("CreateNew ({})", proposed_title)
         }
-        EntityResolutionResult::HumanReviewRequired { candidate_title, score, .. } => {
-            format!("HumanReviewRequired ({}, score {:.2})", candidate_title, score)
+        EntityResolutionResult::HumanReviewRequired {
+            candidate_title,
+            score,
+            ..
+        } => {
+            format!(
+                "HumanReviewRequired ({}, score {:.2})",
+                candidate_title, score
+            )
         }
     };
 
@@ -661,7 +701,9 @@ async fn upload_source_file_handler(
         .as_ref()
         .filter(|v| !v.is_empty())
         .cloned()
-        .unwrap_or_else(|| SourceTagRegistry::infer_tags_for_source(safe_file_name, Some(&text_content)));
+        .unwrap_or_else(|| {
+            SourceTagRegistry::infer_tags_for_source(safe_file_name, Some(&text_content))
+        });
     let saved_tags = SourceTagRegistry::set_file_tags(&theater_path, safe_file_name, initial_tags)
         .unwrap_or_default();
 
@@ -669,7 +711,11 @@ async fn upload_source_file_handler(
         file_name: safe_file_name.to_string(),
         relative_path: rel_path,
         size_bytes: bytes.len(),
-        sections_indexed: if sections.is_empty() { 1 } else { sections.len() },
+        sections_indexed: if sections.is_empty() {
+            1
+        } else {
+            sections.len()
+        },
         resolution: resolution_label,
         tags: saved_tags,
     }))
@@ -767,6 +813,16 @@ pub struct SourceFileEntry {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedGameSummary {
+    pub summary: String,
+    pub generated_at: String,
+    pub model_used: Option<String>,
+    pub sources_fingerprint: String,
+    pub citations: Vec<Citation>,
+    pub generated_by_archivist: bool,
+}
+
 #[derive(Serialize)]
 pub struct TheaterSignalSheet {
     pub theater_id: String,
@@ -782,6 +838,10 @@ pub struct TheaterSignalSheet {
     pub current_season: String,
     pub aura_or_matrix: String,
     pub agent_curator_summary: String,
+    pub summary_generated_by_archivist: bool,
+    pub summary_model_used: Option<String>,
+    pub summary_generated_at: Option<String>,
+    pub summary_stale: bool,
 }
 
 async fn list_sources_handler(
@@ -797,11 +857,19 @@ async fn list_sources_handler(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
-                let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("source").to_string();
+                let file_name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("source")
+                    .to_string();
                 if file_name.starts_with('.') {
                     continue;
                 }
-                let file_type = path.extension().and_then(|e| e.to_str()).unwrap_or("raw").to_string();
+                let file_type = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("raw")
+                    .to_string();
                 let metadata = path.metadata().ok();
                 let size_bytes = metadata.map(|m| m.len()).unwrap_or(0);
                 let tags = SourceTagRegistry::tags_for_file(&tag_catalog, &file_name);
@@ -846,7 +914,11 @@ async fn get_source_content_handler(
     let (file_path, display_name, rel_path) = if let Some(p) = &query.path {
         let clean_rel = p.trim_start_matches('/').trim_start_matches('\\');
         let full = theater_path.join(clean_rel);
-        let name = full.file_name().and_then(|s| s.to_str()).unwrap_or(clean_rel).to_string();
+        let name = full
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(clean_rel)
+            .to_string();
         (full, name, clean_rel.to_string())
     } else if let Some(name) = &query.file_name {
         let full = theater_path.join("00_sources").join(name);
@@ -859,15 +931,27 @@ async fn get_source_content_handler(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let file_type = file_path.extension().and_then(|e| e.to_str()).unwrap_or("raw").to_lowercase();
+    let file_type = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("raw")
+        .to_lowercase();
     let size_bytes = file_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
 
-    let is_binary = matches!(file_type.as_str(), "pdf" | "png" | "jpg" | "jpeg" | "webp" | "bin");
+    let is_binary = matches!(
+        file_type.as_str(),
+        "pdf" | "png" | "jpg" | "jpeg" | "webp" | "bin"
+    );
 
     let content = if is_binary {
-        format!("[Fichier binaire {} ({} KB) indexé dans le bac à sable]", file_type.to_uppercase(), size_bytes / 1024)
+        format!(
+            "[Fichier binaire {} ({} KB) indexé dans le bac à sable]",
+            file_type.to_uppercase(),
+            size_bytes / 1024
+        )
     } else {
-        std::fs::read_to_string(&file_path).unwrap_or_else(|_| "[Impossible de lire le contenu texte du fichier]".to_string())
+        std::fs::read_to_string(&file_path)
+            .unwrap_or_else(|_| "[Impossible de lire le contenu texte du fichier]".to_string())
     };
 
     Ok(Json(SourceContentResponse {
@@ -978,7 +1062,10 @@ async fn delete_wiki_note_handler(
     Path((id, category, slug)): Path<(String, String, String)>,
 ) -> Result<StatusCode, StatusCode> {
     let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
-    let file_path = theater_path.join("01_wiki").join(&category).join(format!("{}.md", slug));
+    let file_path = theater_path
+        .join("01_wiki")
+        .join(&category)
+        .join(format!("{}.md", slug));
 
     if !file_path.exists() || !file_path.is_file() {
         return Err(StatusCode::NOT_FOUND);
@@ -1046,6 +1133,86 @@ async fn get_source_raw_file_handler(
     ))
 }
 
+fn game_summary_cache_path(theater_path: &std::path::Path) -> PathBuf {
+    theater_path.join("00_config").join("game_summary.json")
+}
+
+fn compute_sources_fingerprint(theater_path: &std::path::Path) -> String {
+    let sources_dir = theater_path.join("00_sources");
+    let mut parts: Vec<(String, u64)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&sources_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let size = path.metadata().map(|m| m.len()).unwrap_or(0);
+                parts.push((name, size));
+            }
+        }
+    }
+    parts.sort_by(|a, b| a.0.cmp(&b.0));
+    parts
+        .into_iter()
+        .map(|(n, s)| format!("{}:{}", n, s))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn strip_trailing_sources_block(answer: &str) -> String {
+    let trimmed = answer.trim();
+    for needle in [
+        "\n\n(Sources: [",
+        "\n(Sources: [",
+        " (Sources: [",
+        " (Sources:",
+    ] {
+        if let Some(idx) = trimmed.rfind(needle) {
+            if trimmed.ends_with(')') {
+                return trimmed[..idx].trim_end().to_string();
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
+fn detect_theater_system(
+    theater_path: &std::path::Path,
+    default_system: &str,
+    sources_count: usize,
+) -> String {
+    let sources_dir = theater_path.join("00_sources");
+    let mut detected_system = default_system.to_string();
+    let mut matched = false;
+
+    if let Ok(entries) = std::fs::read_dir(&sources_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if name.starts_with('.') {
+                continue;
+            }
+            if name.contains("ars magica") || name.contains("arm5") || name.contains("hermes") {
+                detected_system = "Ars Magica 5e".to_string();
+                matched = true;
+            } else if name.contains("shadowrun") || name.contains("sr6") {
+                detected_system = "Shadowrun 6e".to_string();
+                matched = true;
+            } else if name.contains("anastasius") {
+                detected_system = "Anastasius".to_string();
+                matched = true;
+            }
+        }
+    }
+
+    if !matched && sources_count == 0 {
+        "En attente de sources documentaires canoniques".to_string()
+    } else {
+        detected_system
+    }
+}
+
 async fn get_theater_signals_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -1054,7 +1221,11 @@ async fn get_theater_signals_handler(
     let ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
 
     let sources_count = std::fs::read_dir(theater_path.join("00_sources"))
-        .map(|r| r.flatten().filter(|e| e.path().is_file()).count())
+        .map(|r| {
+            r.flatten()
+                .filter(|e| e.path().is_file() && !e.file_name().to_string_lossy().starts_with('.'))
+                .count()
+        })
         .unwrap_or(0);
 
     let mut wiki_count = 0;
@@ -1062,14 +1233,21 @@ async fn get_theater_signals_handler(
         for cat in cats.flatten() {
             if cat.path().is_dir() {
                 if let Ok(sub) = std::fs::read_dir(cat.path()) {
-                    wiki_count += sub.flatten().filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("md")).count();
+                    wiki_count += sub
+                        .flatten()
+                        .filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("md"))
+                        .count();
                 }
             }
         }
     }
 
     let personae_count = std::fs::read_dir(theater_path.join("03_personae"))
-        .map(|r| r.flatten().filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json") && !e.file_name().to_string_lossy().contains("psyche")).count())
+        .map(|r| {
+            r.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".persona.json"))
+                .count()
+        })
         .unwrap_or(0);
 
     let tables_count = std::fs::read_dir(theater_path.join("02_machina"))
@@ -1080,50 +1258,44 @@ async fn get_theater_signals_handler(
         .map(|r| r.flatten().count())
         .unwrap_or(0);
 
-    // Déduction automatique du système de règles et de la synthèse d'après les sources injectées
-    let sources_dir = theater_path.join("00_sources");
-    let mut detected_system = ws.manifest.system_id.clone();
-    let mut detected_snippets: Vec<String> = Vec::new();
+    let privacy = ws
+        .manifest
+        .privacy_mode
+        .clone()
+        .unwrap_or_else(|| "strict_local".to_string());
+    let dynamic_rules = detect_theater_system(&theater_path, &ws.manifest.system_id, sources_count);
+    let current_fingerprint = compute_sources_fingerprint(&theater_path);
 
-    if let Ok(entries) = std::fs::read_dir(&sources_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string().to_lowercase();
-            if name.contains("ars magica") || name.contains("arm5") || name.contains("hermes") {
-                detected_system = "Ars Magica 5e".to_string();
-                detected_snippets.push(format!("Source '{}' : Règles hermétiques et univers médiéval mythique", entry.file_name().to_string_lossy()));
-            } else if name.contains("shadowrun") || name.contains("sr6") {
-                detected_system = "Shadowrun 6e".to_string();
-                detected_snippets.push(format!("Source '{}' : Cyberpunk & magie urbaine Seattle", entry.file_name().to_string_lossy()));
-            } else if name.contains("anastasius") {
-                detected_system = "Anastasius".to_string();
-                detected_snippets.push(format!("Source '{}' : Résonance Éthérique Harmonique", entry.file_name().to_string_lossy()));
-            }
-        }
-    }
+    let cached_summary = std::fs::read_to_string(game_summary_cache_path(&theater_path))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<CachedGameSummary>(&raw).ok())
+        .filter(|c| !c.summary.trim().is_empty());
 
-    let privacy = ws.manifest.privacy_mode.clone().unwrap_or_else(|| "strict_local".to_string());
-
-    let dynamic_rules = if detected_snippets.is_empty() {
-        if sources_count == 0 {
-            "En attente de sources documentaires canoniques".to_string()
-        } else {
-            detected_system.clone()
-        }
-    } else {
-        detected_system.clone()
-    };
-
-    let dynamic_summary = if sources_count == 0 {
-        "Aucune source documentaire n'est injectée dans le bac à sable. L'assistant et l'Archiviste attendent vos documents de règles pour en déduire les lois et faits canoniques.".to_string()
-    } else {
-        format!(
-            "Synthèse déduite de {} document(s) source(s) injecté(s) :\n- Système de règles identifié : {}\n- Le corpus comprend {} document(s) canonique(s), {} note(s) et {} personnage(s). Toutes les réponses et verdicts s'appuient strictement sur ces sources.",
-            sources_count,
-            dynamic_rules,
-            sources_count,
-            wiki_count,
-            personae_count
+    let (
+        dynamic_summary,
+        summary_generated_by_archivist,
+        summary_model_used,
+        summary_generated_at,
+        summary_stale,
+    ) = if let Some(cached) = cached_summary {
+        let stale = cached.sources_fingerprint != current_fingerprint;
+        (
+            cached.summary,
+            cached.generated_by_archivist,
+            cached.model_used,
+            Some(cached.generated_at),
+            stale,
         )
+    } else if sources_count == 0 {
+        (
+            "Aucune source documentaire n'est encore déposée dans la bibliothèque. Ajoutez vos livres de règles ou de contexte pour que l'Archiviste rédige la présentation du jeu.".to_string(),
+            false,
+            None,
+            None,
+            false,
+        )
+    } else {
+        (String::new(), false, None, None, true)
     };
 
     Ok(Json(TheaterSignalSheet {
@@ -1140,7 +1312,125 @@ async fn get_theater_signals_handler(
         current_season: String::new(),
         aura_or_matrix: String::new(),
         agent_curator_summary: dynamic_summary,
+        summary_generated_by_archivist,
+        summary_model_used,
+        summary_generated_at,
+        summary_stale,
     }))
+}
+
+async fn generate_theater_summary_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TheaterSignalSheet>, StatusCode> {
+    let theater_path = state.workspaces_root.join(normalize_theater_dir(&id));
+    let ws = TheaterWorkspace::open(&theater_path).map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let mut non_dot_sources = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(theater_path.join("00_sources")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if !fname.starts_with('.') {
+                    non_dot_sources.push(fname);
+                }
+            }
+        }
+    }
+
+    if non_dot_sources.is_empty() {
+        return get_theater_signals_handler(State(state), Path(id)).await;
+    }
+
+    let sources_count = non_dot_sources.len();
+    let current_fingerprint = compute_sources_fingerprint(&theater_path);
+    let detected_system =
+        detect_theater_system(&theater_path, &ws.manifest.system_id, sources_count);
+
+    let tag_catalog = SourceTagRegistry::load(&theater_path);
+    let has_core_tags = non_dot_sources.iter().any(|fname| {
+        SourceTagRegistry::tags_for_file(&tag_catalog, fname)
+            .iter()
+            .any(|t| t == "rules" || t == "background")
+    });
+    let initial_required_tags: Option<Vec<String>> = if has_core_tags {
+        Some(vec!["rules".to_string(), "background".to_string()])
+    } else {
+        None
+    };
+
+    let query = format!(
+        "Présente en 3 à 4 phrases fluides et claires en français le jeu de rôle « {} » ({}) : son univers, son cadre de jeu, le rôle des personnages et ses règles principales, sans spoiler de scénario et sans lister les fichiers sources.",
+        ws.manifest.name, detected_system
+    );
+
+    let runtime_override = Some(serde_json::json!({
+        "workflow_params": { "top_k_chunks": 6 }
+    }));
+
+    let run_archivist = |req_tags: Option<Vec<String>>| {
+        let tid = id.clone();
+        let troot = theater_path.clone();
+        let q = query.clone();
+        let rt_ov = runtime_override.clone();
+        async move {
+            let req = WorkflowRequest {
+                theater_id: tid,
+                theater_root: troot,
+                workflow_id: "WF-01".to_string(),
+                input: serde_json::json!({
+                    "query": q,
+                    "required_tags": req_tags,
+                }),
+                dry_run: true,
+                role: Role::Player,
+                runtime_override: rt_ov,
+            };
+            OrchestratorEngine::execute(req).await
+        }
+    };
+
+    let mut exec = run_archivist(initial_required_tags.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut verdict: ArchivistVerdict = serde_json::from_value(exec.output.clone())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if verdict.documentary_silence && initial_required_tags.is_some() {
+        exec = run_archivist(None)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        verdict = serde_json::from_value(exec.output.clone())
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let clean_summary = strip_trailing_sources_block(&verdict.answer);
+    let is_llm_synthesized = verdict.model_used.is_some()
+        && !clean_summary.starts_with("Synthèse directe issue des extraits canoniques")
+        && !clean_summary
+            .starts_with("Summary synthesized strictly from available canonical sources");
+    if !is_llm_synthesized || !verdict.found_facts || clean_summary.is_empty() {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    let cached = CachedGameSummary {
+        summary: clean_summary,
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        model_used: verdict.model_used,
+        sources_fingerprint: current_fingerprint,
+        citations: verdict.citations,
+        generated_by_archivist: true,
+    };
+    let cache_path = game_summary_cache_path(&theater_path);
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json_str) = serde_json::to_string_pretty(&cached) {
+        let _ = std::fs::write(&cache_path, json_str);
+    }
+
+    get_theater_signals_handler(State(state), Path(id)).await
 }
 
 async fn archivist_query_handler(
@@ -1298,14 +1588,21 @@ async fn create_persona_handler(
     }
 
     // 1. Save .persona.json
-    let json_content = serde_json::to_string_pretty(&persona).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    std::fs::write(personae_dir.join(format!("{}.persona.json", payload.id)), json_content)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let json_content =
+        serde_json::to_string_pretty(&persona).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(
+        personae_dir.join(format!("{}.persona.json", payload.id)),
+        json_content,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // 2. Save .persona.md
     let md_content = persona.to_markdown();
-    std::fs::write(personae_dir.join(format!("{}.persona.md", payload.id)), md_content)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(
+        personae_dir.join(format!("{}.persona.md", payload.id)),
+        md_content,
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // 3. Save .psyche.json (PER-01 Triple Facet Architecture)
     let psyche = PsycheProfile {
@@ -1334,7 +1631,9 @@ async fn create_persona_handler(
 async fn validate_sr6_creation_handler(
     Json(payload): Json<ShadowrunPriorityInput>,
 ) -> Json<CreationValidationResult> {
-    Json(CharacterCreationEngine::validate_shadowrun_priority(&payload))
+    Json(CharacterCreationEngine::validate_shadowrun_priority(
+        &payload,
+    ))
 }
 
 async fn validate_ars_creation_handler(
@@ -1358,7 +1657,8 @@ async fn get_alliance_handler(
         .join(normalize_theater_dir(&id))
         .join("03_personae/alliance.json");
     if cov_path.exists() {
-        let cov = AllianceState::load_from_file(&cov_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let cov = AllianceState::load_from_file(&cov_path)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         Ok(Json(cov))
     } else {
         Err(StatusCode::NOT_FOUND)
@@ -1424,7 +1724,10 @@ async fn get_default_scene_topology_handler() -> Json<SceneTopology> {
         id: ZoneId("zone_hall".to_string()),
         title: "Grand Hall de l'Alliance".to_string(),
         description: "Vaste salle bordée de tapisseries et de colonnes de marbre.".to_string(),
-        connected_zones: vec![ZoneId("zone_lab".to_string()), ZoneId("zone_library".to_string())],
+        connected_zones: vec![
+            ZoneId("zone_lab".to_string()),
+            ZoneId("zone_library".to_string()),
+        ],
         tags: vec![TacticalTag {
             name: "Aura Hermétique 5".to_string(),
             modifier_type: "aura".to_string(),
@@ -1486,7 +1789,9 @@ async fn stage_resolve_intention_handler(
 ) -> Result<Json<MechanicalResolution>, StatusCode> {
     let roll_total = if let Some(forced) = payload.physical_dice_override {
         forced
-    } else if let Ok(parsed) = AdvancedDiceParser::parse_and_roll(&payload.intention.skill_expression) {
+    } else if let Ok(parsed) =
+        AdvancedDiceParser::parse_and_roll(&payload.intention.skill_expression)
+    {
         parsed.total
     } else {
         DiceEngine::roll_standard(1, 10, 0).total
@@ -1600,57 +1905,180 @@ async fn main() -> anyhow::Result<()> {
         .route("/health", get(health_handler))
         .route("/api/mcp/tools", get(list_mcp_tools_handler))
         // Module 1 : Theaters, Snapshots, Chronos & Exports
-        .route("/api/theaters", post(create_theater_handler).get(list_theaters_handler))
-        .route("/api/theaters/{id}", get(get_theater_handler).put(update_theater_handler).delete(delete_theater_handler))
-        .route("/api/theaters/{id}/snapshots", get(list_snapshots_handler).post(create_snapshot_handler))
-        .route("/api/theaters/{id}/snapshots/rollback", post(rollback_snapshot_handler))
-        .route("/api/theaters/{id}/signal-sheet", get(get_theater_signals_handler))
-        .route("/api/theaters/{id}/sources", get(list_sources_handler).post(upload_source_file_handler))
-        .route("/api/theaters/{id}/sources/content", get(get_source_content_handler))
-        .route("/api/theaters/{id}/sources/{file_name}", axum::routing::delete(delete_source_file_handler))
-        .route("/api/theaters/{id}/sources/{file_name}/tags", axum::routing::put(update_source_file_tags_handler))
-        .route("/api/theaters/{id}/sources/raw/{file_name}", get(get_source_raw_file_handler))
-        .route("/api/theaters/{id}/source-tags", get(list_source_tags_handler).post(upsert_custom_source_tag_handler))
-        .route("/api/theaters/{id}/source-tags/{tag_id}", axum::routing::delete(delete_custom_source_tag_handler))
-        .route("/api/theaters/{id}/chronos/advance", post(advance_chronos_handler))
+        .route(
+            "/api/theaters",
+            post(create_theater_handler).get(list_theaters_handler),
+        )
+        .route(
+            "/api/theaters/{id}",
+            get(get_theater_handler)
+                .put(update_theater_handler)
+                .delete(delete_theater_handler),
+        )
+        .route(
+            "/api/theaters/{id}/snapshots",
+            get(list_snapshots_handler).post(create_snapshot_handler),
+        )
+        .route(
+            "/api/theaters/{id}/snapshots/rollback",
+            post(rollback_snapshot_handler),
+        )
+        .route(
+            "/api/theaters/{id}/signal-sheet",
+            get(get_theater_signals_handler),
+        )
+        .route(
+            "/api/theaters/{id}/signal-sheet/generate-summary",
+            post(generate_theater_summary_handler),
+        )
+        .route(
+            "/api/theaters/{id}/sources",
+            get(list_sources_handler).post(upload_source_file_handler),
+        )
+        .route(
+            "/api/theaters/{id}/sources/content",
+            get(get_source_content_handler),
+        )
+        .route(
+            "/api/theaters/{id}/sources/{file_name}",
+            axum::routing::delete(delete_source_file_handler),
+        )
+        .route(
+            "/api/theaters/{id}/sources/{file_name}/tags",
+            axum::routing::put(update_source_file_tags_handler),
+        )
+        .route(
+            "/api/theaters/{id}/sources/raw/{file_name}",
+            get(get_source_raw_file_handler),
+        )
+        .route(
+            "/api/theaters/{id}/source-tags",
+            get(list_source_tags_handler).post(upsert_custom_source_tag_handler),
+        )
+        .route(
+            "/api/theaters/{id}/source-tags/{tag_id}",
+            axum::routing::delete(delete_custom_source_tag_handler),
+        )
+        .route(
+            "/api/theaters/{id}/chronos/advance",
+            post(advance_chronos_handler),
+        )
         .route("/api/export/handout", post(export_handout_handler))
         // Module 2 & 3 : Ingest, Wiki, Hybrid RAG, Archivist & Chronicler
-        .route("/api/theaters/{id}/ingest/markdown", post(ingest_markdown_handler))
-        .route("/api/theaters/{id}/ingest/reconcile", post(reconcile_tables_handler))
-        .route("/api/theaters/{id}/wiki", get(list_wiki_notes_handler).patch(patch_wiki_section_handler))
-        .route("/api/theaters/{id}/wiki/{category}/{slug}", axum::routing::delete(delete_wiki_note_handler))
+        .route(
+            "/api/theaters/{id}/ingest/markdown",
+            post(ingest_markdown_handler),
+        )
+        .route(
+            "/api/theaters/{id}/ingest/reconcile",
+            post(reconcile_tables_handler),
+        )
+        .route(
+            "/api/theaters/{id}/wiki",
+            get(list_wiki_notes_handler).patch(patch_wiki_section_handler),
+        )
+        .route(
+            "/api/theaters/{id}/wiki/{category}/{slug}",
+            axum::routing::delete(delete_wiki_note_handler),
+        )
         .route("/api/theaters/{id}/rag/search", post(search_hybrid_handler))
-        .route("/api/theaters/{id}/agents/archivist", post(archivist_query_handler))
+        .route(
+            "/api/theaters/{id}/agents/archivist",
+            post(archivist_query_handler),
+        )
         .route("/api/llm/models", get(list_models_handler))
-        .route("/api/theaters/{id}/mysteries", get(get_mysteries_board_handler))
-        .route("/api/theaters/{id}/chronicler/debrief", post(ingest_debrief_handler))
+        .route(
+            "/api/theaters/{id}/mysteries",
+            get(get_mysteries_board_handler),
+        )
+        .route(
+            "/api/theaters/{id}/chronicler/debrief",
+            post(ingest_debrief_handler),
+        )
         // Module 4 : Machina, Dice, Rhai-SQL & Monte-Carlo
         .route("/api/machina/roll/standard", post(roll_standard_handler))
         .route("/api/machina/roll/shadowrun", post(roll_shadowrun_handler))
-        .route("/api/machina/roll/ars-magica", post(roll_ars_magica_handler))
-        .route("/api/machina/roll/expression", post(roll_expression_handler))
-        .route("/api/machina/simulate/standard", post(simulate_standard_handler))
-        .route("/api/machina/simulate/shadowrun", post(simulate_shadowrun_handler))
-        .route("/api/machina/tactical-edge", post(evaluate_tactical_edge_handler))
-        .route("/api/theaters/{id}/machina/eval", post(evaluate_rhai_handler))
-        .route("/api/theaters/{id}/machina/schema", get(get_system_schema_handler))
-        .route("/api/theaters/{id}/machina/tables", get(list_sql_tables_handler))
+        .route(
+            "/api/machina/roll/ars-magica",
+            post(roll_ars_magica_handler),
+        )
+        .route(
+            "/api/machina/roll/expression",
+            post(roll_expression_handler),
+        )
+        .route(
+            "/api/machina/simulate/standard",
+            post(simulate_standard_handler),
+        )
+        .route(
+            "/api/machina/simulate/shadowrun",
+            post(simulate_shadowrun_handler),
+        )
+        .route(
+            "/api/machina/tactical-edge",
+            post(evaluate_tactical_edge_handler),
+        )
+        .route(
+            "/api/theaters/{id}/machina/eval",
+            post(evaluate_rhai_handler),
+        )
+        .route(
+            "/api/theaters/{id}/machina/schema",
+            get(get_system_schema_handler),
+        )
+        .route(
+            "/api/theaters/{id}/machina/tables",
+            get(list_sql_tables_handler),
+        )
         // Module 5 : PersonaForge, Creation, Artificer, Alliances & Ledger
-        .route("/api/theaters/{id}/personae", post(create_persona_handler).get(list_personae_handler))
-        .route("/api/theaters/{id}/personae/{persona_id}", axum::routing::delete(delete_persona_handler))
-        .route("/api/persona/validate/sr6", post(validate_sr6_creation_handler))
-        .route("/api/persona/validate/ars-magica", post(validate_ars_creation_handler))
+        .route(
+            "/api/theaters/{id}/personae",
+            post(create_persona_handler).get(list_personae_handler),
+        )
+        .route(
+            "/api/theaters/{id}/personae/{persona_id}",
+            axum::routing::delete(delete_persona_handler),
+        )
+        .route(
+            "/api/persona/validate/sr6",
+            post(validate_sr6_creation_handler),
+        )
+        .route(
+            "/api/persona/validate/ars-magica",
+            post(validate_ars_creation_handler),
+        )
         .route("/api/persona/artificer", post(evaluate_artificer_handler))
         .route("/api/theaters/{id}/alliance", get(get_alliance_handler))
-        .route("/api/theaters/{id}/downtime/resolve", post(resolve_downtime_handler))
+        .route(
+            "/api/theaters/{id}/downtime/resolve",
+            post(resolve_downtime_handler),
+        )
         .route("/api/theaters/{id}/ledger", get(get_party_ledger_handler))
         // Module 6 : StageManager, Channels, Interception & Event Logs
-        .route("/api/stage/scene/default", get(get_default_scene_topology_handler))
-        .route("/api/stage/channels/filter", post(filter_stage_message_handler))
-        .route("/api/stage/interception", post(evaluate_interception_handler))
-        .route("/api/theaters/{id}/stage/resolve", post(stage_resolve_intention_handler))
-        .route("/api/theaters/{id}/stage/logs", get(list_session_logs_handler))
-        .route("/api/theaters/{id}/stage/rewind", post(rewind_stage_handler))
+        .route(
+            "/api/stage/scene/default",
+            get(get_default_scene_topology_handler),
+        )
+        .route(
+            "/api/stage/channels/filter",
+            post(filter_stage_message_handler),
+        )
+        .route(
+            "/api/stage/interception",
+            post(evaluate_interception_handler),
+        )
+        .route(
+            "/api/theaters/{id}/stage/resolve",
+            post(stage_resolve_intention_handler),
+        )
+        .route(
+            "/api/theaters/{id}/stage/logs",
+            get(list_session_logs_handler),
+        )
+        .route(
+            "/api/theaters/{id}/stage/rewind",
+            post(rewind_stage_handler),
+        )
         .merge(orchestrator_routes::router())
         .fallback(static_handler)
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50 MB max upload
@@ -1659,7 +2087,10 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 4780));
-    info!("🎭 Dramatis Daemon (dramatisd) v2.1.0 listening on http://{}", addr);
+    info!(
+        "🎭 Dramatis Daemon (dramatisd) v2.1.0 listening on http://{}",
+        addr
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -1680,9 +2111,11 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
             ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response()
         }
         None => match Asset::get("index.html") {
-            Some(content) => {
-                ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], content.data).into_response()
-            }
+            Some(content) => (
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                content.data,
+            )
+                .into_response(),
             None => (StatusCode::NOT_FOUND, "Not Found").into_response(),
         },
     }
@@ -1717,11 +2150,16 @@ fn pick_theater_icon(name: &str, system: &str) -> String {
         "🌃".to_string()
     } else if lower.contains("d&d") || lower.contains("dragon") || lower.contains("donjon") {
         "🐉".to_string()
-    } else if lower.contains("cthulhu") || lower.contains("horror") || lower.contains("malediction") {
+    } else if lower.contains("cthulhu") || lower.contains("horror") || lower.contains("malediction")
+    {
         "👻".to_string()
     } else if lower.contains("vampire") || lower.contains("strahd") || lower.contains("blood") {
         "🧛".to_string()
-    } else if lower.contains("space") || lower.contains("sci-fi") || lower.contains("star") || lower.contains("aer") {
+    } else if lower.contains("space")
+        || lower.contains("sci-fi")
+        || lower.contains("star")
+        || lower.contains("aer")
+    {
         "✈️".to_string()
     } else if lower.contains("health") || lower.contains("soin") || lower.contains("medical") {
         "🏥".to_string()
@@ -1740,7 +2178,8 @@ async fn list_theaters_handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<TheaterSummary>>, StatusCode> {
     let mut list = Vec::new();
-    let entries = std::fs::read_dir(&state.workspaces_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let entries =
+        std::fs::read_dir(&state.workspaces_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     for entry in entries.flatten() {
         if let Ok(file_type) = entry.file_type() {
@@ -1749,9 +2188,18 @@ async fn list_theaters_handler(
                 if name.ends_with(".dramatis") {
                     let dir_path = entry.path();
                     let ws = TheaterWorkspace::open(&dir_path).ok();
-                    let display_name = ws.as_ref().map(|w| w.manifest.name.clone()).unwrap_or_else(|| name.trim_end_matches(".dramatis").to_string());
-                    let system = ws.as_ref().map(|w| w.manifest.system_id.clone()).unwrap_or_else(|| "Standard".to_string());
-                    let description = ws.as_ref().map(|w| w.manifest.description.clone()).unwrap_or_default();
+                    let display_name = ws
+                        .as_ref()
+                        .map(|w| w.manifest.name.clone())
+                        .unwrap_or_else(|| name.trim_end_matches(".dramatis").to_string());
+                    let system = ws
+                        .as_ref()
+                        .map(|w| w.manifest.system_id.clone())
+                        .unwrap_or_else(|| "Standard".to_string());
+                    let description = ws
+                        .as_ref()
+                        .map(|w| w.manifest.description.clone())
+                        .unwrap_or_default();
 
                     let sources_count = std::fs::read_dir(dir_path.join("00_sources"))
                         .map(|r| r.flatten().filter(|e| e.path().is_file()).count())
@@ -1762,20 +2210,38 @@ async fn list_theaters_handler(
                         for cat in cats.flatten() {
                             if cat.path().is_dir() {
                                 if let Ok(sub) = std::fs::read_dir(cat.path()) {
-                                    wiki_count += sub.flatten().filter(|f| f.path().extension().and_then(|e| e.to_str()) == Some("md")).count();
+                                    wiki_count += sub
+                                        .flatten()
+                                        .filter(|f| {
+                                            f.path().extension().and_then(|e| e.to_str())
+                                                == Some("md")
+                                        })
+                                        .count();
                                 }
                             }
                         }
                     }
 
                     let personae_count = std::fs::read_dir(dir_path.join("03_personae"))
-                        .map(|r| r.flatten().filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json") && !e.file_name().to_string_lossy().contains("psyche")).count())
+                        .map(|r| {
+                            r.flatten()
+                                .filter(|e| {
+                                    e.path().extension().and_then(|x| x.to_str()) == Some("json")
+                                        && !e.file_name().to_string_lossy().contains("psyche")
+                                })
+                                .count()
+                        })
                         .unwrap_or(0);
 
-                    let last_modified = entry.metadata().ok().and_then(|m| m.modified().ok()).map(|t| {
-                        let dt: chrono::DateTime<chrono::Utc> = t.into();
-                        dt.format("%d %b %Y").to_string()
-                    });
+                    let last_modified =
+                        entry
+                            .metadata()
+                            .ok()
+                            .and_then(|m| m.modified().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                                dt.format("%d %b %Y").to_string()
+                            });
 
                     let icon_emoji = pick_theater_icon(&display_name, &system);
 
@@ -1856,8 +2322,10 @@ async fn update_theater_handler(
         ws.manifest.agent_routing = Some(routing);
     }
 
-    let yaml = serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    std::fs::write(theater_path.join("theater.yaml"), yaml).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let yaml =
+        serde_yaml::to_string(&ws.manifest).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    std::fs::write(theater_path.join("theater.yaml"), yaml)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(ws.manifest))
 }

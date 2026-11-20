@@ -8,7 +8,7 @@ use dramatis_gateway::{ChatMessage, SouffleurClient};
 use dramatis_ingest::PdfDocParser;
 use dramatis_rag::{ArchivistAgent, Citation, HybridSearchEngine, LexiconEngine};
 
-use crate::config::LanguagePolicy;
+use crate::config::{ConfigRegistry, LanguagePolicy};
 use crate::error::OrchestratorError;
 use crate::trace::StepTrace;
 use crate::validation::{normalize_path, ValidationPipeline};
@@ -72,7 +72,16 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
                     expanded.extend(["rule", "rules", "mechanic"].map(str::to_string));
                 }
                 "cadre" | "univers" | "monde" => {
-                    expanded.extend(["setting", "mythic", "europe", "background"].map(str::to_string));
+                    expanded.extend(
+                        ["setting", "mythic", "europe", "background", "world", "medieval", "magic", "saga", "covenant"]
+                            .map(str::to_string),
+                    );
+                }
+                "personnage" | "personnages" | "joueur" | "joueurs" | "rôle" | "role" => {
+                    expanded.extend(
+                        ["character", "characters", "player", "players", "magus", "companion", "grog"]
+                            .map(str::to_string),
+                    );
                 }
                 "maison" | "maisons" => {
                     expanded.extend(["house", "houses", "lineage"].map(str::to_string));
@@ -318,13 +327,15 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
         let client = SouffleurClient::new(strict_local);
 
         let chosen_model = resolve_model_name(ctx, input.preferred_model.as_deref()).await;
-        model_used = Some(chosen_model.clone());
-
         let profile = ctx.agent_config.model.to_model_profile(Some(chosen_model));
+        let local_base_url = ctx
+            .theater_root
+            .parent()
+            .map(|wr| ConfigRegistry::load_global_providers(wr).local_lmstudio.base_url);
         let fallback_profile = ctx
             .agent_config
             .model
-            .to_model_profile(Some(ctx.agent_config.model.fallback_model_id.clone()));
+            .to_fallback_model_profile(local_base_url.as_deref());
 
         let messages = vec![
             ChatMessage {
@@ -346,12 +357,29 @@ pub async fn run(ctx: &WorkflowRuntimeInput<'_>) -> Result<WorkflowOutcome, Orch
         );
         let answer = match tokio::time::timeout(
             llm_timeout,
-            client.complete_with_fallback(&profile, &fallback_profile, &messages, None),
+            client.complete_chat(&profile, &messages, None),
         )
         .await
         {
-            Ok(Ok(text)) if !text.trim().is_empty() => text.trim().to_string(),
-            _ => build_offline_grounded_summary(&matched_excerpts, target_lang),
+            Ok(Ok(text)) if !text.trim().is_empty() => {
+                model_used = Some(profile.model_name.clone());
+                text.trim().to_string()
+            }
+            _ => match tokio::time::timeout(
+                llm_timeout,
+                client.complete_chat(&fallback_profile, &messages, None),
+            )
+            .await
+            {
+                Ok(Ok(text)) if !text.trim().is_empty() => {
+                    model_used = Some(fallback_profile.model_name.clone());
+                    text.trim().to_string()
+                }
+                _ => {
+                    model_used = None;
+                    build_offline_grounded_summary(&matched_excerpts, target_lang)
+                }
+            },
         };
 
         steps.push(StepTrace {
@@ -711,6 +739,40 @@ fn extract_matching_paragraphs(
             return;
         }
         let lower = clean.to_lowercase();
+        if lower.contains("trademarks of")
+            || lower.contains("all rights reserved")
+            || lower.contains("used with permission")
+            || lower.contains("copyright ©")
+            || lower.contains("isbn ")
+            || lower.contains("| **entry** | **page**")
+            || clean
+                .lines()
+                .filter(|l| l.trim_start().starts_with('|') && l.contains("](#"))
+                .count()
+                >= 3
+            || lower.starts_with("sources:\n")
+            || lower.starts_with("sources:\r\n")
+            || clean
+                .lines()
+                .filter(|l| {
+                    l.split_whitespace()
+                        .next()
+                        .map(|tok| {
+                            tok.len() <= 5
+                                && tok.chars().all(|c| {
+                                    c.is_ascii_uppercase()
+                                        || c.is_ascii_digit()
+                                        || c == '&'
+                                        || c == ':'
+                                })
+                        })
+                        .unwrap_or(false)
+                })
+                .count()
+                >= 5
+        {
+            return;
+        }
         let words: std::collections::HashSet<&str> = lower
             .split(|c: char| !c.is_alphanumeric())
             .filter(|w| !w.is_empty())
